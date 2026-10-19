@@ -8,7 +8,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-brightgreen?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/Python-3.8%2B-blue?style=flat-square" alt="Python" />
-  <img src="https://img.shields.io/badge/Version-v1.1.0-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/Version-v1.3.0-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="License" />
   <img src="https://img.shields.io/badge/Safety-100%25%20Zero--Touch-success?style=flat-square" alt="Safety" />
 </p>
@@ -34,8 +34,8 @@
   内置智能作用域过滤器，严格跳过消息列表正文（`role="log"`）、Monaco / CodeMirror 代码编辑器、终端输出、Markdown 渲染块及输入框，**绝不篡改代码正文与聊天 Prompt**。
 - 🔄 **词典实时热重载（Live Hot-Reload）**：
   随手编辑保存 `zh-CN.json`，守护进程 2 秒内自动感知更新并热刷新所有窗口，无需重启应用或守护进程。
-- 🎯 **1200+ 深度提取词条 + 动态正则**：
-  基于官方前端 bundle 深度提取，菜单栏、侧栏、设置面板、快捷键提示全覆盖；内置动态正则规则，完美匹配耗时统计（`Thought for 15s` / `Worked for 2m`）、模型状态与系统提示。
+- 🎯 **1770+ 深度提取词条 + 动态正则**：
+  基于官方前端 bundle 深度提取，菜单栏、侧栏、设置面板（含安全预设/权限预设）、快捷键提示全覆盖；内置动态正则规则，完美匹配耗时统计（`Thought for 15s` / `Worked for 2m`）、模型状态与系统提示。
 - 🖥️ **Windows / macOS / Linux 全平台支持**：
   - **Windows**：双击 `install.bat` 极速安装，自动配置开机静默后台守护。
   - **macOS**：一键脚本自动配置 `launchd` 用户守护服务（LaunchAgent）。

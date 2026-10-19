@@ -83,7 +83,7 @@ def build_js(dict_data):
     dict_json = json.dumps(dict_data, ensure_ascii=False)
     return r"""
 (() => {
-    const dict = %s;
+    const dict = __ANTIGRAVITY_ZH_DICT_PAYLOAD__;
 
     /* ---------- 1. 挂载到 window，便于调试与热更新 ---------- */
     window.__antigravityZhDict = dict;
@@ -138,6 +138,9 @@ def build_js(dict_data):
         [/^Analyzed$/, () => '已分析'],
         // No more older messages
         [/^No more older messages$/, () => '没有更早的消息了'],
+        // No more older messages, showing 66 of 66
+        [/^No more older messages,\s*showing\s+(\d+)\s+of\s+(\d+)$/,
+            m => `没有更早的消息了（已显示 ${m[1]} / ${m[2]}）`],
         // Exploring file, running commands
         [/^Exploring file,\s*running commands$/, () => '探索文件中，正在执行命令'],
         // Worked for 2m / Worked for 1h 30m
@@ -156,6 +159,11 @@ def build_js(dict_data):
             const u = { s: '秒', m: '分钟', h: '小时', d: '天' }[m[2]];
             return `${m[1]} ${u}前`;
         }],
+        // 2d / 3h / 15m / 30s 侧边栏相对时间
+        [/^(\d+)\s*(s|m|h|d|w|mo|y)$/, m => {
+            const u = { s: '秒', m: '分钟', h: '小时', d: '天', w: '周', mo: '个月', y: '年' }[m[2]];
+            return `${m[1]}${u}前`;
+        }],
         // 刚刚
         [/^just now$/i, () => '刚刚'],
         // Load older messages, showing 44 of 229
@@ -163,6 +171,36 @@ def build_js(dict_data):
             m => `加载更早的消息（已显示 ${m[1]} / ${m[2]}）`],
         // Select model, current: Gemini 3.8 Flash High
         [/^Select model,\s*current:\s*(.+)$/, m => `选择模型（当前：${m[1]}）`],
+        // Agent permissions / Security / Permission preset selector, current: Turbo
+        [/^(Agent permissions|Permission|Security)\s*preset selector,\s*current:\s*(.+)$/i,
+            m => `预设选择器（当前：${m[2]}）`],
+        // Inherits your Global Permissions when working in this project.
+        [/^Inherits your Global Permissions when working\s*(.+)\.?$/i,
+            () => '在此项目中工作时继承您的全局权限。'],
+        // Rules: 361 tokens
+        [/^Rules:\s*(\d+)\s*tokens$/i, m => `规则：${m[1]} 个 Token`],
+        // Tokens: 1234
+        [/^Tokens:\s*(\d+)$/i, m => `Token 数：${m[1]}`],
+        // 1234 tokens
+        [/^(\d+)\s*tokens$/i, m => `${m[1]} 个 Token`],
+        // Child Subagents (2)
+        [/^Child Subagents\s*\(\s*(\d+)\s*\)$/i, m => `子智能体 (${m[1]})`],
+        // Tools (5)
+        [/^Tools\s*\(\s*(\d+)\s*\)$/i, m => `工具 (${m[1]})`],
+        // Tool Calls (10)
+        [/^Tool Calls\s*\(\s*(\d+)\s*\)$/i, m => `工具调用 (${m[1]})`],
+        // Show more (3)
+        [/^Show more\s*\(\s*(\d+)\s*\)$/i, m => `显示更多 (${m[1]})`],
+        // Show submitted (2)
+        [/^Show submitted\s*\(\s*(\d+)\s*\)$/i, m => `显示已提交 (${m[1]})`],
+        // N active conversations
+        [/^(\d+)\s+active\s+conversations?$/i, m => `${m[1]} 个进行中的对话`],
+        // Show N breakdown
+        [/^Show\s+(\d+)\s+breakdown$/i, m => `展开 ${m[1]} 项明细`],
+        // Weekly Limit Remaining: 85%
+        [/^Weekly Limit Remaining:\s*(.+)$/i, m => `每周剩余额度：${m[1]}`],
+        // Five Hour Limit Remaining: 90%
+        [/^Five Hour Limit Remaining:\s*(.+)$/i, m => `5小时剩余额度：${m[1]}`],
         // Fold lines 2-290
         [/^Fold lines\s+(\d+)\s*-\s*(\d+)$/, m => `折叠第 ${m[1]}-${m[2]} 行`],
         // Remove xxx.svg / 附件名
@@ -359,7 +397,7 @@ def build_js(dict_data):
         skipped: window.__antigravityZh.skippedConversation
     });
 })();
-""" % dict_json
+""".replace("__ANTIGRAVITY_ZH_DICT_PAYLOAD__", dict_json)
 
 
 async def inject_page_via_cdp(ws_url, dict_data):
