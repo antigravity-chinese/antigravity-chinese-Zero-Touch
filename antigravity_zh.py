@@ -266,7 +266,25 @@ def build_js(dict_data):
                     dateStr = `${dm[3]} 年 ${months[dm[1].toLowerCase()]} 月 ${dm[2]} 日`;
                 }
                 return `${m[1]} 现已在付费 Pro 和 Ultra 方案中可用。自 ${dateStr}起，您当前的方案将不再支持第三方模型访问。`;
-            }]
+            }],
+        // Gemini 4 Argon 公告
+        [/^Gemini 4 Argon is now available to paid Pro plan subscribers\.\s*As part of Pro, we('ve| have) rolled out a separate weekly-only Argon quota on top of your existing Gemini quota for 3\.8 Flash\.?$/i,
+            () => 'Gemini 4 Argon 现已面向付费 Pro 方案订阅用户开放。作为 Pro 的一部分，我们在您现有的 Gemini 3.8 Flash 配额之上，推出了独立的仅按周计算的 Argon 配额。'],
+        // N active subagents / tasks / commands
+        [/^(\d+)\s+active\s+subagents?$/i, m => `${m[1]} 个运行中的子智能体`],
+        [/^(\d+)\s+active\s+tasks?$/i, m => `${m[1]} 个运行中的任务`],
+        [/^(\d+)\s+background\s+tasks?$/i, m => `${m[1]} 个后台任务`],
+        [/^(\d+)\s+background\s+commands?$/i, m => `${m[1]} 个后台命令`],
+        [/^(\d+)\s+agents?\s+running$/i, m => `${m[1]} 个智能体正在运行`],
+        // Ran in 120ms / 2.5s / 1m
+        [/^Ran in\s+(\d+(?:\.\d+)?)\s*(ms|s|m|h)$/i, m => {
+            const u = { ms: '毫秒', s: '秒', m: '分钟', h: '小时' }[m[2].toLowerCase()];
+            return `已执行（耗时 ${m[1]} ${u}）`;
+        }],
+        // Exited with code N
+        [/^Exited with code\s+(\d+)$/i, m => `已退出（返回码 ${m[1]}）`],
+        // Task id "..." finished
+        [/^Task id\s+"(.+?)"\s+finished$/i, m => `任务 "${m[1]}" 已完成`]
     ];
 
     /* ---------- 4. 单串翻译 ---------- */
