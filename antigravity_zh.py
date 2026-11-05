@@ -284,7 +284,114 @@ def build_js(dict_data):
         // Exited with code N
         [/^Exited with code\s+(\d+)$/i, m => `已退出（返回码 ${m[1]}）`],
         // Task id "..." finished
-        [/^Task id\s+"(.+?)"\s+finished$/i, m => `任务 "${m[1]}" 已完成`]
+        [/^Task id\s+"(.+?)"\s+finished$/i, m => `任务 "${m[1]}" 已完成`],
+        // --- Antigravity 2.29.0 新增动态规则 ---
+        // 85% left / 100% left
+        [/^(\d+(?:\.\d+)?)\s*%\s*left$/i, m => `${m[1]}% 剩余`],
+        // 5h limit / 1d limit / 7d limit
+        [/^(\d+)\s*(s|m|h|d|w)\s+limit$/i, m => {
+            const u = { s: '秒', m: '分钟', h: '小时', d: '天', w: '周' }[m[2].toLowerCase()];
+            return `${m[1]}${u}限额`;
+        }],
+        // Context window 42% full
+        [/^Context window\s+(\d+(?:\.\d+)?)%\s+full$/i, m => `上下文窗口已用 ${m[1]}%`],
+        // Context window about 42% full, compacted since the last response
+        [/^Context window about\s+(\d+(?:\.\d+)?)%\s+full,\s*compacted since the last response$/i,
+            m => `上下文窗口约已用 ${m[1]}%，自上次回复后已压缩`],
+        // 42% of the context window used
+        [/^(\d+(?:\.\d+)?)%\s+of the context window used$/i, m => `已使用 ${m[1]}% 的上下文窗口`],
+        // 45.2K of 200K tokens used
+        [/^([0-9.,]+\s*[KMB]?)\s+of\s+([0-9.,]+\s*[KMB]?)\s+tokens used$/i,
+            m => `已使用 ${m[1]} / ${m[2]} 个 Token`],
+        // N Side Question(s) / View N side question(s) / Side Question: xxx / Side question failed: xxx
+        [/^(\d+)\s+Side Questions?$/i, m => `${m[1]} 个旁路提问`],
+        [/^View\s+(\d+)\s+side questions?$/i, m => `查看 ${m[1]} 个旁路提问`],
+        [/^Side Question:\s*(.+)$/i, m => `旁路提问：${m[1]}`],
+        [/^Side question failed:\s*(.+)$/i, m => `旁路提问失败：${m[1]}`],
+        // N tool(s) enabled / disabled / N tools / N plugin(s) / N account(s) / N comment(s) / N question(s) / N turn(s) / N chunk(s)
+        [/^(\d+)\s+tools?\s+enabled$/i, m => `已启用 ${m[1]} 个工具`],
+        [/^(\d+)\s+tools?\s+disabled$/i, m => `已禁用 ${m[1]} 个工具`],
+        [/^(\d+)\s+tools$/i, m => `${m[1]} 个工具`],
+        [/^(\d+)\s+plugins?$/i, m => `${m[1]} 个插件`],
+        [/^(\d+)\s+accounts?$/i, m => `${m[1]} 个账号`],
+        [/^(\d+)\s+comments?$/i, m => `${m[1]} 条评论`],
+        [/^(\d+)\s+questions?$/i, m => `${m[1]} 个问题`],
+        [/^(\d+)\s+turns?$/i, m => `${m[1]} 轮对话`],
+        [/^(\d+)\s+chunks?$/i, m => `${m[1]} 个分块`],
+        [/^(\d+)\s+browser steps?$/i, m => `${m[1]} 个浏览器步骤`],
+        [/^\((\d+)\s+steps?\)$/i, m => `（${m[1]} 个步骤）`],
+        // Turn N / Step X of Y / Question X of Y / Chunk N / Source N / Rule N / Automation N / Account N
+        [/^Turn\s+(\d+)$/i, m => `第 ${m[1]} 轮`],
+        [/^Step\s+(\d+)\s+of\s+(\d+)$/i, m => `第 ${m[1]} / ${m[2]} 步`],
+        [/^Question\s+(\d+)\s+of\s+(\d+)$/i, m => `第 ${m[1]} / ${m[2]} 个问题`],
+        [/^Chunk\s+(\d+)$/i, m => `分块 ${m[1]}`],
+        [/^Source\s+(\d+)$/i, m => `来源 ${m[1]}`],
+        [/^Rule\s+(\d+)$/i, m => `规则 ${m[1]}`],
+        [/^Automation\s+(\d+)$/i, m => `自动化 ${m[1]}`],
+        [/^Account\s+(\d+)$/i, m => `账号 ${m[1]}`],
+        [/^UI Extension\s+(\d+)$/i, m => `界面扩展 ${m[1]}`],
+        [/^Unnamed Agent\s+(\d+)$/i, m => `未命名智能体 ${m[1]}`],
+        [/^Unnamed skill\s+(\d+)$/i, m => `未命名技能 ${m[1]}`],
+        // Show N earlier steps / Show N more subagent(s) / Show N breakdown(s)
+        [/^Show\s+(\d+)\s+earlier steps?$/i, m => `显示前 ${m[1]} 个步骤`],
+        [/^Show\s+(\d+)\s+more subagents?$/i, m => `显示另外 ${m[1]} 个子智能体`],
+        [/^Show\s+(\d+)\s+breakdowns?$/i, m => `展开 ${m[1]} 项明细`],
+        // See all (N) / Send all (N) / Add (N) / See N more / +N more (Show all) / +N more
+        [/^See all\s*\(\s*(\d+)\s*\)$/i, m => `查看全部 (${m[1]})`],
+        [/^Send all\s*\(\s*(\d+)\s*\)$/i, m => `全部发送 (${m[1]})`],
+        [/^Add\s*\(\s*(\d+)\s*\)$/i, m => `添加 (${m[1]})`],
+        [/^See\s+(\d+)\s+more$/i, m => `查看另外 ${m[1]} 项`],
+        [/^\+(\d+)\s+more\s*\(Show all\)$/i, m => `还有 ${m[1]} 项（显示全部）`],
+        [/^\+(\d+)\s+more$/i, m => `还有 ${m[1]} 项`],
+        // Thinking (Ns)… / Thinking for Ns / Still thinking, N seconds / Working · Ns
+        [/^Thinking\s*\((\d+)s\)\s*[.…]?$/i, m => `思考中 (${m[1]} 秒)…`],
+        [/^Thinking for\s+(\d+)s$/i, m => `已思考 ${m[1]} 秒`],
+        [/^Still thinking,\s*(\d+)\s*seconds?$/i, m => `仍在思考（${m[1]} 秒）`],
+        [/^Working\s*·\s*(\d+)s$/i, m => `正在执行 · ${m[1]} 秒`],
+        // Using browser (Ns) / Using browser · xxx (Ns) / Using browser · xxx
+        [/^Using browser\s*\((\d+)s\)$/i, m => `正在使用浏览器 (${m[1]} 秒)`],
+        [/^Using browser\s*·\s*(.+?)\s*\((\d+)s\)$/i, m => `正在使用浏览器 · ${m[1]} (${m[2]} 秒)`],
+        [/^Using browser\s*·\s*(.+)$/i, m => `正在使用浏览器 · ${m[1]}`],
+        // Waiting for command completion (up to N seconds)
+        [/^Waiting for command completion\s*\(up to\s+(\d+)\s+seconds?\)$/i,
+            m => `等待命令完成（最多 ${m[1]} 秒）`],
+        // Sort and filter conversations (N active)
+        [/^Sort and filter conversations\s*\((\d+)\s+active\)$/i,
+            m => `排序与筛选对话（${m[1]} 个进行中）`],
+        // Unfold lines X-Y
+        [/^Unfold lines\s+(\d+)\s*-\s*(\d+)$/i, m => `展开第 ${m[1]}-${m[2]} 行`],
+        // Compare responses from N models side-by-side to find the best result.
+        [/^Compare responses from\s+(\d+)\s+models side-by-side to find the best result\.?$/i,
+            m => `并排对比 ${m[1]} 个模型的回复以选出最佳结果。`],
+        // Proceed with implementation plan and N comment(s)
+        [/^Proceed with implementation plan and\s+(\d+)\s+comments?$/i,
+            m => `携带 ${m[1]} 条评论按实施计划继续执行`],
+        // Marked N conversations as read
+        [/^Marked\s+(\d+)\s+conversations? as read$/i, m => `已将 ${m[1]} 个对话标为已读`],
+        // Message queued. N messages in queue.
+        [/^Message queued\.\s*(\d+)\s+messages? in queue\.?$/i, m => `消息已加入队列（队列中共 ${m[1]} 条消息）。`],
+        // Skill/Plugin installed: xxx
+        [/^(Skill|Plugin)\s+installed:\s*(.+)$/i, m => `${m[1].toLowerCase() === 'skill' ? '技能' : '插件'}已安装：${m[2]}`],
+        // Reset N override(s)
+        [/^Reset\s+(\d+)\s+overrides?$/i, m => `重置 ${m[1]} 项覆盖设置`],
+        // Push/Pushed N commit(s) to xxx / Publish/Published xxx to origin
+        [/^Push\s+(\d+)\s+commits?\s+to\s+(.+)$/i, m => `推送 ${m[1]} 个提交至 ${m[2]}`],
+        [/^Pushed\s+(\d+)\s+commits?\s+to\s+(.+?)\.?$/i, m => `已推送 ${m[1]} 个提交至 ${m[2]}。`],
+        [/^Pushed to\s+(.+?)\.?$/i, m => `已推送至 ${m[1]}。`],
+        [/^Publish\s+(.+?)\s+to origin$/i, m => `将 ${m[1]} 发布到远端 (origin)`],
+        [/^Published\s+(.+?)\s+to origin\.?$/i, m => `已将 ${m[1]} 发布到远端 (origin)。`],
+        // Committed to xxx.
+        [/^Committed to\s+(.+?)\.?$/i, m => `已提交至 ${m[1]}。`],
+        // Running for xxx / Up xxx
+        [/^Running for\s+(.+)$/i, m => `已运行 ${m[1]}`],
+        [/^Up\s+(\d+\s*[smhd]\b.*)$/i, m => `已运行 ${m[1]}`],
+        // Cancel Questionnaire and Stop the Agent (xxx)
+        [/^Cancel Questionnaire and Stop the Agent\s*\((.+)\)$/i, m => `取消问卷并停止智能体 (${m[1]})`],
+        // You have N conversations in progress...
+        [/^You have\s+(\d+)\s+conversations in progress\.\s*Updating will cancel them and you'll need to manually restart them\.?$/i,
+            m => `您有 ${m[1]} 个正在进行的对话。更新将取消这些对话，之后您需要手动重新开始。`],
+        [/^You have\s+(\d+)\s+conversations in progress\.\s*Updating will interrupt them,\s*and they will automatically resume once the update completes\.?$/i,
+            m => `您有 ${m[1]} 个正在进行的对话。更新将暂时中断这些对话，并在更新完成后自动恢复。`]
     ];
 
     /* ---------- 4. 单串翻译 ---------- */
