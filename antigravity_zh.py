@@ -18,6 +18,7 @@ import sys
 import json
 import time
 import asyncio
+import urllib.parse
 import urllib.request
 import websockets
 
@@ -91,7 +92,8 @@ def build_js(dict_data):
         dict,
         version: 1,
         translated: 0,
-        skippedConversation: 0
+        skippedConversation: 0,
+        walkedNonEmpty: false
     };
 
     /* ---------- 2. 不该被翻译的容器 ---------- */
@@ -125,6 +127,28 @@ def build_js(dict_data):
     }
 
     /* ---------- 3. 动态串规则（正则 → 生成中文） ---------- */
+    const fmtResetTime = s => s
+        .replace(/<\s*1\s*m\b/gi, '不到 1 分钟')
+        .replace(/(\d+)\s*d\b/gi, '$1天')
+        .replace(/(\d+)\s*h\b/gi, '$1小时')
+        .replace(/(\d+)\s*m\b/gi, '$1分钟')
+        .replace(/(\d+)\s*s\b/gi, '$1秒');
+
+    const fmtLimitLabel = raw => {
+        const l = raw.toLowerCase();
+        if (l === 'weekly') return '每周';
+        if (l === 'daily') return '每日';
+        if (l === 'monthly') return '每月';
+        if (l === 'hourly') return '每小时';
+        if (/^(five[- ]hour|5h)$/.test(l)) return '5小时';
+        const nm = l.match(/^(\d+)\s*(s|m|h|d|w)$/);
+        if (nm) {
+            const u = { s: '秒', m: '分钟', h: '小时', d: '天', w: '周' }[nm[2]];
+            return `${nm[1]}${u}`;
+        }
+        return raw;
+    };
+
     const DYNAMIC = [
         // Thought for 11s / 1m 20s
         [/^Thought for\s+(.+)$/,
@@ -220,16 +244,10 @@ def build_js(dict_data):
         [/^Run command:\s*(.+)$/, m => `执行命令: ${m[1]}`],
         [/^Running command$/, () => '正在执行命令'],
         // 额度重置时间：Resets in 3d 10h / Resets in 5h 20m / Resets in <1m
-        [/^Resets in\s+(.+)$/i,
-            m => {
-                const t = m[1]
-                    .replace(/<\s*1\s*m\b/gi, '不到 1 分钟')
-                    .replace(/(\d+)\s*d\b/gi, '$1天')
-                    .replace(/(\d+)\s*h\b/gi, '$1小时')
-                    .replace(/(\d+)\s*m\b/gi, '$1分钟')
-                    .replace(/(\d+)\s*s\b/gi, '$1秒');
-                return `${t}后重置`;
-            }],
+        [/^Resets in\s+(.+)$/i, m => `${fmtResetTime(m[1])}后重置`],
+        // 限额与重置复合描述：Weekly limit, resets in 1d 1h / 5h limit, resets in 4h 30m
+        [/^(Weekly|Daily|Monthly|Hourly|Five[- ]hour|\d+\s*[smhdw])\s+limit,\s*resets in\s+(.+)$/i,
+            m => `${fmtLimitLabel(m[1])}限额，${fmtResetTime(m[2])}后重置`],
         // 额度刷新长文本：You have used some of your weekly limit, it will fully refresh in 3 days, 10 hours.
         [/^You have used (some|all) of your (.+?) limit,\s*it will fully refresh in\s+(.+?)\.?$/i,
             m => {
@@ -391,7 +409,113 @@ def build_js(dict_data):
         [/^You have\s+(\d+)\s+conversations in progress\.\s*Updating will cancel them and you'll need to manually restart them\.?$/i,
             m => `您有 ${m[1]} 个正在进行的对话。更新将取消这些对话，之后您需要手动重新开始。`],
         [/^You have\s+(\d+)\s+conversations in progress\.\s*Updating will interrupt them,\s*and they will automatically resume once the update completes\.?$/i,
-            m => `您有 ${m[1]} 个正在进行的对话。更新将暂时中断这些对话，并在更新完成后自动恢复。`]
+            m => `您有 ${m[1]} 个正在进行的对话。更新将暂时中断这些对话，并在更新完成后自动恢复。`],
+        // --- Antigravity 2.31.2 新增动态规则 ---
+        // View N help item(s) / View N help item(s) and M side question(s)
+        [/^View\s+(\d+)\s+help(?:\s+items?)?$/i, m => `查看 ${m[1]} 项帮助`],
+        [/^View\s+(\d+)\s+help(?:\s+items?)?\s+and\s+(\d+)\s+side questions?$/i,
+            m => `查看 ${m[1]} 项帮助和 ${m[2]} 个旁路提问`],
+        // Delete side question: xxx / Edit side question title: xxx
+        [/^Delete side question:\s*(.+)$/i, m => `删除旁路提问：${m[1]}`],
+        [/^Edit side question title:\s*(.+)$/i, m => `编辑旁路提问标题：${m[1]}`],
+        // Stop N selected / N pinned conversation(s) / Showing first N references
+        [/^Stop\s+(\d+)\s+selected$/i, m => `停止所选的 ${m[1]} 项`],
+        [/^(\d+)\s+pinned conversations?$/i, m => `${m[1]} 个置顶对话`],
+        [/^Showing first\s+(\d+)\s+references$/i, m => `显示前 ${m[1]} 个引用`],
+        // Zoom N%, reset to fit / Playback speed Nx
+        [/^Zoom\s+(\d+(?:\.\d+)?)%,\s*reset to fit$/i, m => `缩放 ${m[1]}%，重置为适应窗口`],
+        [/^Playback speed\s+(\d+(?:\.\d+)?)x$/i, m => `播放速度 ${m[1]}x`],
+        // Your Plan: xxx / Release channel: xxx / Version xxx
+        [/^Your Plan:\s*(.+)$/i, m => `您的方案：${m[1]}`],
+        [/^Release channel:\s*(.+)$/i, m => `发布通道：${m[1]}`],
+        [/^Version\s+([0-9]+\.[0-9]+[^\s]*)$/i, m => `版本 ${m[1]}`],
+        // Where the agent runs, current: xxx / Select project, current: xxx / Filter skills and rules: xxx
+        [/^Where the agent runs,\s*current:\s*(.+)$/i, m => `智能体运行位置（当前：${m[1]}）`],
+        [/^Select project,\s*current:\s*(.+)$/i, m => `选择项目（当前：${m[1]}）`],
+        [/^Filter skills and rules:\s*(.+)$/i, m => `筛选技能与规则：${m[1]}`],
+        // Your plan's baseline quota will refresh on xxx.
+        [/^Your plan's baseline quota will refresh on\s+(.+?)\.?$/i,
+            m => `您方案的基础配额将于 ${m[1]} 刷新。`],
+        // 欢迎语与产品提示
+        [/^Welcome back,\s*(.+?)\.\s*Where should we pick up\?$/i, m => `欢迎回来，${m[1]}。我们从哪里继续？`],
+        [/^Good to see you,\s*(.+?)\.\s*What's next\?$/i, m => `很高兴见到你，${m[1]}。接下来做什么？`],
+        [/^Hey\s+(.+?),\s*what should we build today\?$/i, m => `嗨，${m[1]}，今天想构建什么？`],
+        [/^Welcome to\s+(.+?)!$/i, m => `欢迎使用 ${m[1]}！`],
+        [/^Help us improve\s+(.+?)\.?$/i, m => `帮助我们改进 ${m[1]}。`],
+        // 浏览器权限、下载与规则审批选项
+        [/^Yes,\s*allow downloads from\s+(.+?)\s+for this run$/i, m => `是，在本次运行中允许从 ${m[1]} 下载`],
+        [/^Yes,\s*allow downloads from\s+(.+?)\s+in this conversation$/i, m => `是，在此对话中允许从 ${m[1]} 下载`],
+        [/^Yes,\s*always allow downloads from\s+(.+)$/i, m => `是，始终允许从 ${m[1]} 下载`],
+        [/^Yes,\s*allow\s+(.+?)\s+in this conversation$/i, m => `是，在此对话中允许 ${m[1]}`],
+        [/^Yes,\s*always allow\s+(.+)$/i, m => `是，始终允许 ${m[1]}`],
+        [/^Yes,\s*and always allow\s+'(.+?)'\s+in this conversation$/i, m => `是，并在此对话中始终允许 '${m[1]}'`],
+        [/^Yes,\s*and always allow\s+'(.+?)'$/i, m => `是，并始终允许 '${m[1]}'`],
+        [/^Yes,\s*save rule for\s+'(.+?)'\s+globally$/i, m => `是，全局保存 '${m[1]}' 的规则`],
+        [/^Yes,\s*save rule for\s+'(.+?)'\s+in this conversation$/i, m => `是，在此对话中保存 '${m[1]}' 的规则`],
+        // 账号连接与站点数据操作
+        [/^Sign in to\s+(.+)$/i, m => `登录到 ${m[1]}`],
+        [/^Sign-in failed:\s*(.+)$/i, m => `登录失败：${m[1]}`],
+        [/^Reconnect\s+(.+)$/i, m => `重新连接 ${m[1]}`],
+        [/^Configure\s+(.+?),\s*values missing$/i, m => `配置 ${m[1]}（缺少必填值）`],
+        [/^Clearing cookies and site data for\s+(.+)$/i, m => `正在清除 ${m[1]} 的 Cookie 和站点数据`],
+        [/^Could not clear site data for\s+(.+)$/i, m => `无法清除 ${m[1]} 的站点数据`],
+        [/^Site data cleared for\s+(.+)$/i, m => `已清除 ${m[1]} 的站点数据`],
+        // 蜂群协作看板 (Swarm Board) 动态状态
+        [/^Runs on\s+(.+)$/i, m => `运行于 ${m[1]}`],
+        [/^Narrator read up to\s+#(\d+)\s+of\s+(\d+)$/i, m => `解说员已读取至 #${m[1]} / ${m[2]}`],
+        [/^Posted in\s+#(.+?);\s*click to show only\s+#(.+)$/i, m => `发布于 #${m[1]}；点击仅显示 #${m[2]}`],
+        [/^(\d+)\s+steps\s*·\s*(\d+)\s+posts\s*·\s*(\d+)\s+unread$/i,
+            m => `${m[1]} 步 · ${m[2]} 条帖子 · ${m[3]} 条未读`],
+        // AI 积分、配额、遥测提示
+        [/^Available AI Credits:\s*(.+)$/i, m => `可用 AI 积分：${m[1]}`],
+        [/^You need\s+(?:at least\s+)?(.+?)\s+AI Credits to send messages\.\s*To continue using\s+(.+?)\s+now,\s*purchase more AI Credits\.?$/i,
+            m => `您需要${m[1].toLowerCase() === 'more' ? '更多' : '至少 ' + m[1]} AI 积分才能发送消息。要继续使用 ${m[2]}，请购买更多 AI 积分。`],
+        [/^Your quota for\s+(.+?)\s+has been reached\.\s*Switch to another available model to continue\.?$/i,
+            m => `您的 ${m[1]} 配额已用尽。请切换到其他可用模型以继续。`],
+        [/^Your quota for\s+(.+?)\s+will reset on\s+(.+?)\.\s*Switch to another available model to continue\.?$/i,
+            m => `您的 ${m[1]} 配额将于 ${m[2]} 重置。请切换到其他可用模型以继续。`],
+        [/^When toggled on,\s*(.+?)\s+will use your AI credits to fulfill model requests once you're out of model quota\.\s*.+$/i,
+            m => `开启后，当您的模型配额用尽时，${m[1]} 将使用您的 AI 积分来完成模型请求。系统将始终优先消耗您的模型配额。`],
+        [/^When toggled on,\s*(.+?)\s+collects usage data to help Google enhance performance and features\.?$/i,
+            m => `开启后，${m[1]} 将收集使用数据，以帮助 Google 改进性能与功能。`],
+        // 工具轨迹、浏览器与搜索动态文案
+        [/^Downloads,\s*(\d+)%\s*complete$/i, m => `下载中，已完成 ${m[1]}%`],
+        [/^Browser task:\s*"(.+)"$/i, m => `浏览器任务："${m[1]}"`],
+        [/^Used MCP tool:\s*(.+)$/i, m => `已使用 MCP 工具：${m[1]}`],
+        [/^Used tool:\s*(.+)$/i, m => `已使用工具：${m[1]}`],
+        [/^Invoked subagent:\s*(.+)$/i, m => `已调用子智能体：${m[1]}`],
+        [/^Opened browser:\s*(.+)$/i, m => `已打开浏览器：${m[1]}`],
+        [/^Read URL:\s*(.+)$/i, m => `读取网址：${m[1]}`],
+        [/^Searched for files:\s*(.+)$/i, m => `搜索文件：${m[1]}`],
+        [/^Searched web:\s*"(.+)"$/i, m => `搜索网页："${m[1]}"`],
+        [/^Searched for\s+"(.+)"$/i, m => `搜索："${m[1]}"`],
+        [/^Search for\s+"(.+?)"\s+in the Marketplace$/i, m => `在插件市场中搜索 "${m[1]}"`],
+        [/^Typed\s+'(.*)'\s+in Browser$/i, m => `已在浏览器中输入 '${m[1]}'`],
+        [/^Typing\s+'(.*)'\s+in Browser$/i, m => `正在浏览器中输入 '${m[1]}'`],
+        // 快捷键、插件、钩子、导航与审批
+        [/^Add\s+(\d+)\s+plugins?\s+from\s+(.+)$/i, m => `从 ${m[2]} 添加 ${m[1]} 个插件`],
+        [/^Add shortcut for\s+(.+)$/i, m => `为 ${m[1]} 添加快捷键`],
+        [/^Recording shortcut for\s+(.+?)\.\s*Press keys to bind,\s*Enter to save,\s*Escape to cancel\.?$/i,
+            m => `正在录制 ${m[1]} 的快捷键。请按键绑定，按 Enter 保存，按 Esc 取消。`],
+        [/^Are you sure you want to delete the hook\s+"(.+?)"\?$/i, m => `确定要删除钩子 "${m[1]}" 吗？`],
+        [/^Credentials expire in\s+(.+?)\.\s*Refresh credentials to keep this automation running\.?$/i,
+            m => `凭据将在 ${fmtResetTime(m[1])}后过期。请刷新凭据以保持此自动化继续运行。`],
+        [/^Managed by the\s+(.+?)\s+(automation|plugin)$/i,
+            m => `由 ${m[1]} ${m[2].toLowerCase() === 'plugin' ? '插件' : '自动化'}托管`],
+        [/^Go to page\s+(\d+)$/i, m => `跳转到第 ${m[1]} 页`],
+        [/^Go to slide\s+(\d+)$/i, m => `跳转到第 ${m[1]} 张幻灯片`],
+        [/^Go to turn\s+(\d+)\s+of\s+(\d+)$/i, m => `跳转到第 ${m[1]} / ${m[2]} 轮`],
+        [/^Turn\s+(\d+)\s+of\s+(\d+)$/i, m => `第 ${m[1]} / ${m[2]} 轮`],
+        [/^Turns\s+(\d+)[–-](\d+)$/i, m => `第 ${m[1]}–${m[2]} 轮`],
+        [/^Checkpoint #(\d+)$/i, m => `检查点 #${m[1]}`],
+        [/^View Diff for\s+(.+)$/i, m => `查看 ${m[1]} 的差异`],
+        [/^All changes since\s+(.+)$/i, m => `自 ${m[1]} 以来的所有更改`],
+        [/^Agent finished:\s*(.+)$/i, m => `智能体已完成：${m[1]}`],
+        [/^Agent needs permission to act on\s+(.+)$/i, m => `智能体需要权限以操作 ${m[1]}`],
+        [/^Open Subagent:\s*(.+)$/i, m => `打开子智能体：${m[1]}`],
+        [/^Open URL in system browser:\s*(.+)$/i, m => `在系统浏览器中打开网址：${m[1]}`],
+        [/^Opens external link:\s*(.+)$/i, m => `打开外部链接：${m[1]}`],
+        [/^Save rule to always allow\s+(.+?)\?$/i, m => `保存规则以始终允许 ${m[1]}？`]
     ];
 
     /* ---------- 4. 单串翻译 ---------- */
@@ -465,14 +589,19 @@ def build_js(dict_data):
     }
 
     window.__antigravityZhWalk = () => {
-        if (document.body) walk(document.body, true);
+        if (document.body) {
+            if ((document.body.textContent || '').trim().length > 0) {
+                window.__antigravityZh.walkedNonEmpty = true;
+            }
+            walk(document.body, true);
+        }
     };
 
     /* ---------- 6. 首次全量扫描 ---------- */
     if (document.body) {
-        walk(document.body, true);
+        window.__antigravityZhWalk();
     } else {
-        document.addEventListener('DOMContentLoaded', () => walk(document.body, true), { once: true });
+        document.addEventListener('DOMContentLoaded', () => window.__antigravityZhWalk(), { once: true });
     }
 
     /* ---------- 7. 监听动态更新 ---------- */
@@ -525,36 +654,42 @@ def build_js(dict_data):
 """.replace("__ANTIGRAVITY_ZH_DICT_PAYLOAD__", dict_json)
 
 
+async def cdp_call(ws, msg_id, method, params=None, timeout=2.0):
+    """发送 CDP 请求并按 id 匹配响应，忽略穿插的异步事件帧。"""
+    payload = {"id": msg_id, "method": method}
+    if params is not None:
+        payload["params"] = params
+    await ws.send(json.dumps(payload))
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise asyncio.TimeoutError()
+        raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
+        msg = json.loads(raw)
+        if msg.get("id") == msg_id:
+            return msg
+
+
 async def inject_page_via_cdp(ws_url, dict_data):
     """通过 WebSocket 连接单个页面目标，直接注入前端自驱动汉化引擎（无侵入、防崩溃、秒级释放）。"""
     js_code = build_js(dict_data)
     async with websockets.connect(ws_url, max_size=None) as ws:
         # 1. 注册内核级新文档自动注入（刷新/路由跳转即生效，无需等待二次轮询）
         try:
-            await ws.send(json.dumps({"id": 1, "method": "Page.enable"}))
-            await asyncio.wait_for(ws.recv(), timeout=2.0)
-            await ws.send(json.dumps({
-                "id": 2,
-                "method": "Page.addScriptToEvaluateOnNewDocument",
-                "params": {"source": js_code}
-            }))
-            await asyncio.wait_for(ws.recv(), timeout=2.0)
+            await cdp_call(ws, 1, "Page.enable", timeout=2.0)
+            await cdp_call(ws, 2, "Page.addScriptToEvaluateOnNewDocument", {"source": js_code}, timeout=2.0)
         except Exception:
             pass
 
         # 2. 立即针对当前页面执行评估注入
-        eval_msg = {
-            "id": 3,
-            "method": "Runtime.evaluate",
-            "params": {
-                "expression": js_code,
-                "returnByValue": True,
-                "awaitPromise": False,
-            },
-        }
-        await ws.send(json.dumps(eval_msg))
-        raw = await asyncio.wait_for(ws.recv(), timeout=5.0)
-        result = json.loads(raw)
+        result = await cdp_call(
+            ws,
+            3,
+            "Runtime.evaluate",
+            {"expression": js_code, "returnByValue": True, "awaitPromise": False},
+            timeout=5.0,
+        )
         res = result.get("result", {}).get("result", {})
         val = res.get("value")
         if val:
@@ -566,20 +701,19 @@ async def inject_page_via_cdp(ws_url, dict_data):
 
 
 async def check_page_status(ws_url):
-    """检测页面当前是否已完成汉化翻译（确保不是空 DOM 假就绪）。"""
+    """检测页面当前是否已完成汉化注入（避免空 DOM 假就绪，同时防止无匹配词条页面死循环重注）。"""
     try:
         async with websockets.connect(ws_url, max_size=None) as ws:
-            check_msg = {
-                "id": 1,
-                "method": "Runtime.evaluate",
-                "params": {
-                    "expression": "!!(window.__antigravityZh && window.__antigravityZh.translated > 0)",
+            res = await cdp_call(
+                ws,
+                1,
+                "Runtime.evaluate",
+                {
+                    "expression": "!!(window.__antigravityZh && (window.__antigravityZh.translated > 0 || window.__antigravityZh.walkedNonEmpty))",
                     "returnByValue": True,
                 },
-            }
-            await ws.send(json.dumps(check_msg))
-            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
-            res = json.loads(raw)
+                timeout=2.0,
+            )
             return bool(res.get("result", {}).get("result", {}).get("value"))
     except Exception:
         return False
@@ -589,18 +723,31 @@ async def refresh_page_walk(ws_url):
     """唤醒页面重刷遍历，捕捉新渲染的 React 组件。"""
     try:
         async with websockets.connect(ws_url, max_size=None) as ws:
-            msg = {
-                "id": 1,
-                "method": "Runtime.evaluate",
-                "params": {
+            await cdp_call(
+                ws,
+                1,
+                "Runtime.evaluate",
+                {
                     "expression": "window.__antigravityZhWalk ? (window.__antigravityZhWalk(), true) : false",
                     "returnByValue": True,
                 },
-            }
-            await ws.send(json.dumps(msg))
-            await asyncio.wait_for(ws.recv(), timeout=2.0)
+                timeout=2.0,
+            )
     except Exception:
         pass
+
+
+def is_antigravity_target(target):
+    """仅匹配 Antigravity 客户端自身页面与本地插件视图，跳过外部网页与空白/调试页面。"""
+    if target.get("type") != "page":
+        return False
+    url = target.get("url", "")
+    if not url or url.startswith(("data:", "about:", "devtools:", "chrome:")):
+        return False
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme == "plugin":
+        return True
+    return parsed.scheme in ("http", "https") and parsed.hostname in ("127.0.0.1", "localhost", "::1")
 
 
 def get_active_targets(port):
@@ -609,8 +756,7 @@ def get_active_targets(port):
     try:
         with urllib.request.urlopen(url, timeout=2.5) as resp:
             targets = json.loads(resp.read().decode())
-        pages = [t for t in targets if t.get("type") == "page" and not t.get("url", "").startswith("data:")]
-        return pages
+        return [t for t in targets if is_antigravity_target(t)]
     except Exception:
         return []
 
