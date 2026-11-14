@@ -34,8 +34,8 @@
   内置智能作用域过滤器，严格跳过消息列表正文（`role="log"`）、Monaco / CodeMirror 代码编辑器、终端输出、Markdown 渲染块及输入框，**绝不篡改代码正文与聊天 Prompt**。
 - 🔄 **词典实时热重载（Live Hot-Reload）**：
   随手编辑保存 `zh-CN.json`，守护进程 2 秒内自动感知更新并热刷新所有窗口，无需重启应用或守护进程。
-- 🎯 **4090+ 深度提取词条 + 动态正则**：
-  基于 Antigravity 2.31.2 官方前端 bundle 深度提取，菜单栏、侧栏、设置面板（含安全预设/权限预设/外观/通用/浏览器/界面与对话布局）、上下文窗口与模型配额指示器、旁路提问（Side Question / `/btw`）、协调者与蜂群协作看板（Coordinators & Swarm Board）、浏览器下载与站点数据管理、CEL 表达式参考、插件市场与连接器（Marketplace & Connectors）、定时自动化（Automations）、GitHub 权限策略、语音模式、快捷键提示、Web 预览、云端/Cog 工作区、幕僚长画布全覆盖；内置动态正则规则，完美匹配耗时统计（`Thought for 15s` / `Worked for 2m`）、配额与上下文占用比例、后台任务与命令状态、浏览器权限确认、模型变动与系统提示。
+- 🎯 **4080+ 深度精炼词条 + 235+ 动态正则**：
+  基于 Antigravity 2.32.1 官方前端 bundle 深度提取与去重校对，菜单栏、侧栏、设置面板（含安全预设/权限预设/外观/通用/浏览器/界面与对话布局）、SSH 远程主机（SSH Host）与环境配置脚本、移动端与跨设备远程接力（Remote Control）、上下文窗口与模型配额指示器、旁路提问（Side Question / `/btw`）、协调者与蜂群协作看板（Coordinators & Swarm Board `plugin://` 视图）、浏览器下载与站点数据管理、CEL 表达式参考、插件市场与连接器（Marketplace & Connectors）、定时自动化（Automations）、GitHub 权限策略、语音模式、快捷键提示、Web 预览、云端/Cog 工作区、幕僚长画布全覆盖；内置 235+ 条动态正则规则，完美匹配耗时统计（`Thought for 15s` / `Worked for 2m`）、配额与上下文占用比例、后台任务与命令状态、浏览器权限确认、模型变动与系统提示。
 - 🖥️ **Windows / macOS / Linux 全平台支持**：
   - **Windows**：双击 `install.bat` 极速安装，自动配置开机静默后台守护。
   - **macOS**：一键脚本自动配置 `launchd` 用户守护服务（LaunchAgent）。

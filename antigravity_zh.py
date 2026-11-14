@@ -227,7 +227,9 @@ def build_js(dict_data):
         [/^Five Hour Limit Remaining:\s*(.+)$/i, m => `5小时剩余额度：${m[1]}`],
         // Fold lines 2-290
         [/^Fold lines\s+(\d+)\s*-\s*(\d+)$/, m => `折叠第 ${m[1]}-${m[2]} 行`],
-        // Remove xxx.svg / 附件名
+        // Remove xxx from Recent / Remove shortcut xxx for yyy / Remove xxx.svg (附件名)
+        [/^Remove\s+(.+?)\s+from Recent$/i, m => `从最近列表中移除 ${m[1]}`],
+        [/^Remove shortcut\s+(.+?)\s+for\s+(.+)$/i, m => `移除 ${m[2]} 的快捷键 ${m[1]}`],
         [/^Remove\s+(.+)$/, m => `移除 ${m[1]}`],
         // showing 44 of 229
         [/^showing\s+(\d+)\s+of\s+(\d+)$/, m => `已显示 ${m[1]} / ${m[2]}`],
@@ -515,7 +517,42 @@ def build_js(dict_data):
         [/^Open Subagent:\s*(.+)$/i, m => `打开子智能体：${m[1]}`],
         [/^Open URL in system browser:\s*(.+)$/i, m => `在系统浏览器中打开网址：${m[1]}`],
         [/^Opens external link:\s*(.+)$/i, m => `打开外部链接：${m[1]}`],
-        [/^Save rule to always allow\s+(.+?)\?$/i, m => `保存规则以始终允许 ${m[1]}？`]
+        [/^Save rule to always allow\s+(.+?)\?$/i, m => `保存规则以始终允许 ${m[1]}？`],
+
+        // ── Antigravity 2.32.1 新增动态规则（SSH 远程主机 / 移动端接力 / Swarm 协同 / 评论草稿） ──
+        [/^(\d+)\s+Drafts?$/i, m => `${m[1]} 份草稿`],
+        [/^(\d+)\s+hidden hosts?$/i, m => `${m[1]} 个隐藏主机`],
+        [/^(\d+)\s+stuck$/i, m => `${m[1]} 个卡住`],
+        [/^(\d+)\s+MCP servers?\s+failed to start$/i, m => `${m[1]} 个 MCP 服务器启动失败`],
+        [/^(\d+)\s+waiting on\s+(@\S+)$/i, m => `${m[1]} 个正在等待 ${m[2]}`],
+        [/^Waiting on\s+(@?\S+)$/i, m => `正在等待 ${m[1]}`],
+        [/^Resume\s+(\d+)\s+comment drafts?$/i, m => `恢复 ${m[1]} 份评论草稿`],
+        [/^Couldn't connect to\s+(.+?)\.\s*(.+)$/i, m => `无法连接到 ${m[1]}。${translate(m[2])}`],
+        [/^Couldn't connect to\s+(.+)$/i, m => `无法连接到 ${m[1]}`],
+        [/^Couldn't disconnect\s+(.+?):\s*(.+)$/i, m => `无法断开 ${m[1]}：${m[2]}`],
+        [/^Couldn't switch to\s+(.+?):\s*(.+)$/i, m => `无法切换到 ${m[1]}：${m[2]}`],
+        [/^Couldn't remove\s+(.+?)\s+from Recent$/i, m => `无法从最近列表中移除 ${m[1]}`],
+        [/^Removed\s+(.+?)\s+from Recent$/i, m => `已从最近列表中移除 ${m[1]}`],
+        [/^Hide\s+(.+?)\s+from this list$/i, m => `从此列表中隐藏 ${m[1]}`],
+        [/^Show\s+(.+?)\s+in the list again$/i, m => `在列表中重新显示 ${m[1]}`],
+        [/^Hid\s+(.+)$/i, m => `已隐藏 ${m[1]}`],
+        [/^Showing\s+(.+?)\s+again$/i, m => `已重新显示 ${m[1]}`],
+        [/^No hosts in\s+(.+?)\s+yet\.\s*Type one above\.$/i, m => `${m[1]} 中尚无主机。请在上方直接输入。`],
+        [/^Side question\s*\(conversation\s+(.+)\)$/i, m => `旁路提问（对话 ${m[1]}）`],
+        [/^SSH Config\s*\((.+)\)$/i, m => `SSH 配置 (${m[1]})`],
+        [/^SSH config:\s*(.+)$/i, m => `SSH 配置：${m[1]}`],
+        [/^(.+?)\s+is paused in\s+(.+?);\s*its view keeps playing here\.\s*Resume to let it continue\.$/i, m => `${m[1]} 已在 ${m[2]} 中暂停；其画面仍在此处播放，恢复后可继续运行。`],
+        [/^This window's agents, files, and terminals are on\s+(.+)\.$/i, m => `此窗口的智能体、文件和终端均运行在 ${m[1]} 上。`],
+        [/^Work locally on\s+(.+)$/i, m => `在 ${m[1]} 上本地工作`],
+        [/^Uses your local clone,\s*(.+)$/i, m => `使用您的本地克隆：${m[1]}`],
+        [/^Enable Word Wrap\s*\((.+)\)$/i, m => `启用自动换行 (${m[1]})`],
+        [/^Disable Word Wrap\s*\((.+)\)$/i, m => `禁用自动换行 (${m[1]})`],
+        [/^Toggle Word Wrap\s*\((.+)\)$/i, m => `切换自动换行 (${m[1]})`],
+        [/^Where the agent runs, current:\s*(.+)$/i, m => `智能体运行位置，当前：${m[1]}`],
+        [/^Select model, current:\s*(.+)$/i, m => `选择模型，当前：${m[1]}`],
+        [/^Select project, current:\s*(.+)$/i, m => `选择项目，当前：${m[1]}`],
+        [/^Agent permissions preset selector, current:\s*(.+)$/i, m => `智能体权限预设选择器，当前：${m[1]}`],
+        [/^(\d+)\s+folders?\s+in this project could not be loaded because their locations are invalid\.$/i, m => `此项目中有 ${m[1]} 个文件夹因路径无效而无法加载。`]
     ];
 
     /* ---------- 4. 单串翻译 ---------- */
@@ -738,8 +775,8 @@ async def refresh_page_walk(ws_url):
 
 
 def is_antigravity_target(target):
-    """仅匹配 Antigravity 客户端自身页面与本地插件视图，跳过外部网页与空白/调试页面。"""
-    if target.get("type") != "page":
+    """仅匹配 Antigravity 客户端自身页面与本地插件视图（含 plugin:// iframe），跳过外部网页与空白/调试页面。"""
+    if target.get("type") not in ("page", "iframe"):
         return False
     url = target.get("url", "")
     if not url or url.startswith(("data:", "about:", "devtools:", "chrome:")):
