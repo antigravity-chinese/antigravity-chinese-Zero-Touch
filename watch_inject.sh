@@ -3,4 +3,6 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec python3 -u "$DIR/antigravity_zh.py" --watch
+PYTHON_BIN="$DIR/.venv/bin/python3"
+[ -x "$PYTHON_BIN" ] || PYTHON_BIN="python3"
+exec "$PYTHON_BIN" -u "$DIR/antigravity_zh.py" --watch

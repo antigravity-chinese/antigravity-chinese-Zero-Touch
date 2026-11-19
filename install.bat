@@ -22,7 +22,13 @@ echo [1/3] 检查 Python websockets 依赖...
 python -c "import websockets" >nul 2>&1
 if errorlevel 1 (
     echo 正在安装 websockets 模块...
-    pip install websockets
+    pip install websockets || python -m pip install websockets
+    python -c "import websockets" >nul 2>&1
+    if errorlevel 1 (
+        echo [错误] websockets 模块安装失败，请检查网络连接或手动执行: python -m pip install websockets
+        pause
+        exit /b 1
+    )
 )
 echo [OK] 运行环境已就绪。
 

@@ -27,15 +27,15 @@ else
     rm -f "$HOME/.config/systemd/user/antigravity-zh-watch.service"
     systemctl --user daemon-reload 2>/dev/null || true
     USER_DESKTOP_FILE="$HOME/.local/share/applications/antigravity.desktop"
-    if [ -f "$USER_DESKTOP_FILE" ] && grep -q -- '--remote-debugging-port=0' "$USER_DESKTOP_FILE"; then
-        sed -i 's| --remote-debugging-port=0||g' "$USER_DESKTOP_FILE"
+    if [ -f "$USER_DESKTOP_FILE" ] && grep -qE -- '--remote-debugging-port=(0|19222)([[:space:]]|$)' "$USER_DESKTOP_FILE"; then
+        sed -i -E 's# --remote-debugging-port=(0|19222)([[:space:]]|$)#\2#g' "$USER_DESKTOP_FILE"
     fi
     echo "✅ systemd 守护服务已移除。"
 fi
 
 # 2. 终止残留后台进程
 echo "[2/2] 正在清理后台注入进程..."
-pkill -f "antigravity_zh.py" 2>/dev/null || true
+pkill -f "antigravity_zh\.py.*--watch" 2>/dev/null || true
 
 echo ""
 echo "==========================================="

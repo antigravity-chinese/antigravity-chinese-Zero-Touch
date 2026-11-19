@@ -34,12 +34,12 @@
   内置智能作用域过滤器，严格跳过消息列表正文（`role="log"`）、Monaco / CodeMirror 代码编辑器、终端输出、Markdown 渲染块及输入框，**绝不篡改代码正文与聊天 Prompt**。
 - 🔄 **词典实时热重载（Live Hot-Reload）**：
   随手编辑保存 `zh-CN.json`，守护进程 2 秒内自动感知更新并热刷新所有窗口，无需重启应用或守护进程。
-- 🎯 **4140+ 深度精炼词条 + 246 条动态正则**：
-  基于 Antigravity **2.33.0** 官方前端 bundle 深度提取与去重校对，全面覆盖菜单栏、侧栏、设置面板（含快捷键方案 Keybinding Scheme / 安全与权限预设 / 外观 / 通用 / 浏览器与浏览数据 Browsing Data & Cookies by Site / 界面与对话布局）、SSH 远程主机（SSH Host）与环境配置脚本、移动端与跨设备远程接力（Remote Control）、上下文窗口与模型配额指示器、旁路提问（Side Question / `/btw` 与选区插入）、插件包管理与审查（Plugin Bundles）、协调者与蜂群协作看板（Coordinators & Swarm Board `plugin://` 视图）、CEL 表达式参考、插件市场与连接器（Marketplace & Connectors）、定时自动化（Automations）、GitHub 权限策略、语音听写模式、快捷键提示、Web 预览、云端/Cog 工作区、幕僚长画布；内置 246 条动态正则规则，完美匹配耗时统计、配额与上下文占用比例、插件包安装/审查提示、旁路提问动态标题、后台任务与系统提示。
+- 🎯 **4140+ 深度精炼词条 + 240 条动态正则**：
+  基于 Antigravity **2.33.0** 官方前端 bundle 深度提取与去重校对，全面覆盖菜单栏、侧栏、设置面板（含快捷键方案 Keybinding Scheme / 安全与权限预设 / 外观 / 通用 / 浏览器与浏览数据 Browsing Data & Cookies by Site / 界面与对话布局）、SSH 远程主机（SSH Host）与环境配置脚本、移动端与跨设备远程接力（Remote Control）、上下文窗口与模型配额指示器、旁路提问（Side Question / `/btw` 与选区插入）、插件包管理与审查（Plugin Bundles）、协调者与蜂群协作看板（Coordinators & Swarm Board `plugin://` 视图）、CEL 表达式参考、插件市场与连接器（Marketplace & Connectors）、定时自动化（Automations）、GitHub 权限策略、语音听写模式、快捷键提示、Web 预览、云端/Cog 工作区、幕僚长画布；内置 240 条动态正则规则，完美匹配耗时统计、配额与上下文占用比例、插件包安装/审查提示、旁路提问动态标题、后台任务与系统提示。
 - 🔧 **原生适配 Antigravity 2.33.0+（全平台免手动敲命令）**：
   Antigravity 2.33.0 起默认关闭了本地 CDP 调试端口（仅在启动参数包含 `--remote-debugging-port` 时生成 `DevToolsActivePort`）。本版本在安装时**绝不修改任何官方程序文件、`.app` 签名或 `app.asar`**：
-  - **Windows / Linux**：自动为原版快捷方式 / `.desktop` 启动器附加 `--remote-debugging-port=0`（卸载时自动还原）。
-  - **macOS**：LaunchAgent 后台守护进程内置**首启自动带参接管**（4 重安全锁：仅在客户端刚启动 ≤10 秒、无 CDP 端口时触发，带 30 秒冷却，绝不打断正在使用的对话），用户照常点击官方原版图标即可自动完成汉化，**永远无需手动敲终端命令**（如需关闭可设 `ANTIGRAVITY_ZH_NO_TAKEOVER=1`）。
+  - **Windows / Linux**：自动为原版快捷方式 / `.desktop` 启动器附加 `--remote-debugging-port=19222`（卸载时自动还原）；Windows 采用**免管理员提权**的三重独立常驻架构（`schtasks` 普通用户计划任务 / WMI 系统服务托管 / `CREATE_BREAKAWAY_FROM_JOB` + `HKCU\...\Run` 与 Startup 双重自启），在含空格路径与普通用户权限下均可 100% 脱离客户端进程树独立存活，退出客户端绝不中断守护。
+  - **macOS**：LaunchAgent 后台守护进程内置**首启自动带参接管**（4 重安全锁：仅在客户端刚启动 1~15 秒、无 CDP 端口时触发，带 6 秒短冷却、连续失败 3 次后 60 秒熔断，CDP 存活后立即清零，绝不打断正在使用的对话），用户照常点击官方原版图标即可自动完成汉化，**永远无需手动敲终端命令**（如需关闭可设 `ANTIGRAVITY_ZH_NO_TAKEOVER=1`）。
 - 🖥️ **Windows / macOS / Linux 全平台支持**：
   - **Windows**：双击 `install.bat` 极速安装，自动配置开机静默后台守护。
   - **macOS**：一键脚本自动配置 `launchd` 用户守护服务（LaunchAgent）。
@@ -162,7 +162,7 @@ antigravity-chinese/
 ## ❓ 常见问题 (FAQ)
 
 ### Q1: 为什么 Antigravity 启动后没有自动变成中文？
-- **Antigravity 2.33.0+ 特别说明**：2.33.0 起官方默认关闭了 CDP 调试端口（需携带 `--remote-debugging-port=0` 启动参数才会生成 `DevToolsActivePort`）：
+- **Antigravity 2.33.0+ 特别说明**：2.33.0 起官方默认关闭了 CDP 调试端口（需携带 `--remote-debugging-port=19222` 启动参数才会生成 `DevToolsActivePort`）：
   - **Windows / Linux**：安装脚本已自动为现有快捷方式 / `.desktop` 启动器添加该参数；若安装前已打开客户端，请**完全退出（含系统托盘）后重新打开**即可在 2 秒内自动汉化。
   - **macOS**：后台守护进程已开启「首启自动带参接管」（不破坏官方 `.app` 签名）。若安装前已打开客户端，只需按 `Cmd+Q` 完全退出，再**照常点击程序坞/启动台里的官方原版图标**打开，守护进程会自动带参拉起并在 2 秒内完成汉化，无需手动输入任何命令。
 - 请确认后台守护进程是否正常运行：
@@ -182,3 +182,21 @@ antigravity-chinese/
 ## 📄 开源许可
 
 本项目采用 [MIT 许可证](LICENSE)。欢迎提交 PR 或 Issue 共同完善汉化词典！ 
+
+
+## 固定端口与接管、首屏监听修复
+
+- 全平台默认 CDP 端口为 `19222`；优先探测 CLI `--port` / `ANTIGRAVITY_CDP_PORT`，再探测默认端口，最后探测各配置目录的 `DevToolsActivePort`，每步均验证存活。固定端口减少对端口文件覆写竞态的依赖。
+- Windows 快捷方式与 Linux `.desktop` 自动升级旧 `=0` 参数，卸载兼容清理 `=0` 与 `=19222`。第三方代理启动脚本（如 `launch.ps1`）或代理快捷方式需自行添加 `--remote-debugging-port=19222`。
+- macOS 对刚启动 1~15 秒且未带调试参数的进程接管：6 秒短冷却，连续失败 3 次后冷却 60 秒；探测到 CDP 存活即清零冷却与失败计数，支持快速退出重开。最多等待旧 PID 退出 5 秒，未退出则取消重新拉起。
+- NewDocument 阶段即使 body 尚未创建，也会在 DOMContentLoaded 和后续补扫中幂等挂载或迁移 MutationObserver。首屏就绪要求已翻译内容或可见文本超过 40 字符，并检查监听器存在，避免脚本/样式文本造成假就绪。
+
+
+### macOS 重启边界补充修复
+
+安装器的“立即重启”与后台自动接管共用重启流程：退出命令成功后，最多轮询等待旧 PID 退出 5 秒，确认消失才使用 `--remote-debugging-port=19222` 启动。进程查询失败、超时或退出失败时取消本次重启并提示，不再将查询失败当作进程已退出；安装器仅在流程成功返回后显示重启成功。
+
+
+### Python 3.8–3.11 语法兼容修复
+
+将 Windows WMI 启动命令中的嵌套 f-string 提取为独立变量，消除旧版 Python 的 `f-string expression part cannot include a backslash` 编译错误。该错误原先也会阻止 macOS/Linux 启动整个脚本。命令内容及路径转义行为不变，继续支持 Python 3.8+。已在 Windows 上使用真实 CPython 3.8.10、3.9.6、3.10.11、3.11.9、3.12.10 执行语法、导入与模拟回归测试；macOS 实机重启及界面端到端验收尚未完成。

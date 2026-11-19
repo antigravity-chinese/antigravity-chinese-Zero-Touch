@@ -17,7 +17,9 @@ import os
 import sys
 import json
 import time
+import shutil
 import asyncio
+import subprocess
 import urllib.parse
 import urllib.request
 import websockets
@@ -44,6 +46,7 @@ def get_config_dirs():
     return dirs
 
 DICT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "zh-CN.json")
+DEFAULT_CDP_PORT = "19222"
 
 
 def load_dictionary():
@@ -71,8 +74,7 @@ def _is_cdp_port_alive(port):
 
 
 def is_antigravity_running():
-    """检测本机是否已有 Antigravity 客户端进程正在运行（用于区分未启动与未开启 CDP 端口）。"""
-    import subprocess
+    """检测本机是否已有 Antigravity 客户端进程正在运行（避免误匹配自身脚本）。"""
     try:
         if sys.platform == "win32":
             res = subprocess.run(
@@ -80,9 +82,21 @@ def is_antigravity_running():
                 capture_output=True, text=True, timeout=3,
             )
             return "antigravity.exe" in res.stdout.lower()
-        else:
-            res = subprocess.run(["pgrep", "-if", "antigravity"], capture_output=True, text=True, timeout=3)
-            return res.returncode == 0
+        if sys.platform == "darwin":
+            return _find_macos_antigravity_main_process() is not None
+        res = subprocess.run(["ps", "-Ao", "comm=,args="], capture_output=True, text=True, timeout=3)
+        if res.returncode != 0:
+            return False
+        for line in res.stdout.splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) < 2:
+                continue
+            comm, args = parts[0].lower(), parts[1]
+            if "antigravity_zh.py" in args or "watch_inject.sh" in args or "install.sh" in args:
+                continue
+            if comm == "antigravity" or ("/antigravity" in args.lower() and "--type=" not in args):
+                return True
+        return False
     except Exception:
         return False
 
@@ -106,32 +120,30 @@ def get_devtools_port(strict=True):
     if override and _is_cdp_port_alive(override):
         return override
 
-    fallback_port = None
+    if _is_cdp_port_alive(DEFAULT_CDP_PORT):
+        return DEFAULT_CDP_PORT
+
     for d in get_config_dirs():
         pf = os.path.join(d, "DevToolsActivePort")
         if os.path.exists(pf):
             try:
                 with open(pf, "r", encoding="utf-8") as f:
                     port = f.readline().strip()
-                    if port and port.isdigit():
-                        if _is_cdp_port_alive(port):
-                            return port
-                        if fallback_port is None:
-                            fallback_port = port
+                    if port and port.isdigit() and _is_cdp_port_alive(port):
+                        return port
             except Exception:
                 pass
-    if fallback_port and not strict:
-        return fallback_port
     if strict:
         if is_antigravity_running():
             print("[提示] 检测到 Antigravity 正在运行，但未开启 CDP 远程调试端口（Antigravity 2.33.0+ 默认关闭了该端口）。")
             if sys.platform == "win32":
                 print("       请完全退出 Antigravity（含系统托盘），再通过桌面/开始菜单快捷方式重新启动即可自动汉化。")
+                print("       若使用第三方代理启动脚本如 launch.ps1/代理快捷方式，请在启动参数中添加 --remote-debugging-port=19222。")
             elif sys.platform == "darwin":
                 print("       请按 Cmd+Q 完全退出 Antigravity，再直接点击原版图标重新打开（后台守护进程会自动接管开启调试端口并汉化）。")
-                print("       若未启用守护进程，也可手动执行：open -a Antigravity --args --remote-debugging-port=0")
+                print("       若未启用守护进程，也可手动执行：open -a Antigravity --args --remote-debugging-port=19222")
             else:
-                print("       请完全退出后通过应用图标重新启动，或执行：antigravity --remote-debugging-port=0")
+                print("       请完全退出后通过应用图标重新启动，或执行：antigravity --remote-debugging-port=19222")
         else:
             print("[错误] 未检测到正在运行的 Antigravity。请先启动 Antigravity 客户端！")
         sys.exit(1)
@@ -193,6 +205,12 @@ def build_js(dict_data):
         .replace(/(\d+)\s*m\b/gi, '$1分钟')
         .replace(/(\d+)\s*s\b/gi, '$1秒');
 
+    const fmtDuration = s => s
+        .replace(/(\d+)\s*d\b/g, '$1 天')
+        .replace(/(\d+)\s*h\b/g, '$1 小时')
+        .replace(/(\d+)\s*m\b/g, '$1 分钟')
+        .replace(/(\d+)\s*s\b/g, '$1 秒');
+
     const fmtLimitLabel = raw => {
         const l = raw.toLowerCase();
         if (l === 'weekly') return '每周';
@@ -210,10 +228,7 @@ def build_js(dict_data):
 
     const DYNAMIC = [
         // Thought for 11s / 1m 20s
-        [/^Thought for\s+(.+)$/,
-            m => '思考耗时 ' + m[1].replace(/(\d+)\s*s\b/g, '$1 秒')
-                                   .replace(/(\d+)\s*m\b/g, '$1 分钟')
-                                   .replace(/(\d+)\s*h\b/g, '$1 小时')],
+        [/^Thought for\s+(.+)$/, m => '思考耗时 ' + fmtDuration(m[1])],
         // Thinking...
         [/^Thinking\.\.\.$/, () => '思考中...'],
         [/^Thinking$/, () => '思考中'],
@@ -227,11 +242,7 @@ def build_js(dict_data):
         // Exploring file, running commands
         [/^Exploring file,\s*running commands$/, () => '探索文件中，正在执行命令'],
         // Worked for 2m / Worked for 1h 30m
-        [/^Worked for\s+(.+)$/,
-            m => '耗时 ' + m[1].replace(/(\d+)\s*s\b/g, '$1 秒')
-                                   .replace(/(\d+)\s*m\b/g, '$1 分钟')
-                                   .replace(/(\d+)\s*h\b/g, '$1 小时')
-                                   .replace(/(\d+)\s*d\b/g, '$1 天')],
+        [/^Worked for\s+(.+)$/, m => '耗时 ' + fmtDuration(m[1])],
         // Working...
         [/^Working\.\.\.$/, () => '正在执行...'],
         [/^Working$/, () => '正在执行'],
@@ -278,8 +289,6 @@ def build_js(dict_data):
         [/^Show submitted\s*\(\s*(\d+)\s*\)$/i, m => `显示已提交 (${m[1]})`],
         // N active conversations
         [/^(\d+)\s+active\s+conversations?$/i, m => `${m[1]} 个进行中的对话`],
-        // Show N breakdown
-        [/^Show\s+(\d+)\s+breakdown$/i, m => `展开 ${m[1]} 项明细`],
         // Weekly Limit Remaining: 85%
         [/^Weekly Limit Remaining:\s*(.+)$/i, m => `每周剩余额度：${m[1]}`],
         // Five Hour Limit Remaining: 90%
@@ -299,8 +308,6 @@ def build_js(dict_data):
         // Today / Yesterday
         [/^Today$/i, () => '今天'],
         [/^Yesterday$/i, () => '昨天'],
-        // Close (Esc) 之类的快捷键提示
-        [/^Close\s*\(Esc\)$/, () => '关闭 (Esc)'],
         // Run command: xxx
         [/^Run command:\s*(.+)$/, m => `执行命令: ${m[1]}`],
         [/^Running command$/, () => '正在执行命令'],
@@ -586,7 +593,7 @@ def build_js(dict_data):
         [/^(\d+)\s+waiting on\s+(@\S+)$/i, m => `${m[1]} 个正在等待 ${m[2]}`],
         [/^Waiting on\s+(@?\S+)$/i, m => `正在等待 ${m[1]}`],
         [/^Resume\s+(\d+)\s+comment drafts?$/i, m => `恢复 ${m[1]} 份评论草稿`],
-        [/^Couldn't connect to\s+(.+?)\.\s*(.+)$/i, m => `无法连接到 ${m[1]}。${translate(m[2])}`],
+        [/^Couldn't connect to\s+(.+?)\.\s*(.+)$/i, m => `无法连接到 ${m[1]}。${translate(m[2]) || m[2]}`],
         [/^Couldn't connect to\s+(.+)$/i, m => `无法连接到 ${m[1]}`],
         [/^Couldn't disconnect\s+(.+?):\s*(.+)$/i, m => `无法断开 ${m[1]}：${m[2]}`],
         [/^Couldn't switch to\s+(.+?):\s*(.+)$/i, m => `无法切换到 ${m[1]}：${m[2]}`],
@@ -607,10 +614,6 @@ def build_js(dict_data):
         [/^Enable Word Wrap\s*\((.+)\)$/i, m => `启用自动换行 (${m[1]})`],
         [/^Disable Word Wrap\s*\((.+)\)$/i, m => `禁用自动换行 (${m[1]})`],
         [/^Toggle Word Wrap\s*\((.+)\)$/i, m => `切换自动换行 (${m[1]})`],
-        [/^Where the agent runs, current:\s*(.+)$/i, m => `智能体运行位置，当前：${m[1]}`],
-        [/^Select model, current:\s*(.+)$/i, m => `选择模型，当前：${m[1]}`],
-        [/^Select project, current:\s*(.+)$/i, m => `选择项目，当前：${m[1]}`],
-        [/^Agent permissions preset selector, current:\s*(.+)$/i, m => `智能体权限预设选择器，当前：${m[1]}`],
         [/^(\d+)\s+folders?\s+in this project could not be loaded because their locations are invalid\.$/i, m => `此项目中有 ${m[1]} 个文件夹因路径无效而无法加载。`],
 
         // ── Antigravity 2.33.0 新增动态规则（插件包 / 旁路提问） ──
@@ -669,7 +672,7 @@ def build_js(dict_data):
         if (isSkipped(el)) return;
         let p = el, depth = 0;
         while (p && p.nodeType === 1 && depth++ < 12) {
-            if (isConversationRoot(p)) return;
+            if (isSkipped(p) || isConversationRoot(p)) return;
             p = p.parentNode;
         }
         for (const a of ATTRS) {
@@ -696,26 +699,6 @@ def build_js(dict_data):
         for (let c = node.firstChild; c; c = c.nextSibling) walk(c, false);
     }
 
-    window.__antigravityZhWalk = () => {
-        if (document.body) {
-            if ((document.body.textContent || '').trim().length > 0) {
-                window.__antigravityZh.walkedNonEmpty = true;
-            }
-            walk(document.body, true);
-        }
-    };
-
-    /* ---------- 6. 首次全量扫描 ---------- */
-    if (document.body) {
-        window.__antigravityZhWalk();
-    } else {
-        document.addEventListener('DOMContentLoaded', () => window.__antigravityZhWalk(), { once: true });
-    }
-
-    /* ---------- 7. 监听动态更新 ---------- */
-    if (window.__antigravityZhObserver) {
-        window.__antigravityZhObserver.disconnect();
-    }
     const observer = new MutationObserver(mutations => {
         for (const m of mutations) {
             if (m.type === 'childList') {
@@ -728,8 +711,13 @@ def build_js(dict_data):
         }
     });
 
-    const targetNode = document.body || document.documentElement;
-    if (targetNode) {
+    function ensureObserver() {
+        const targetNode = document.body || document.documentElement;
+        if (!targetNode) return;
+        if (window.__antigravityZhObservedTarget === targetNode && window.__antigravityZhObserver === observer) return;
+        if (window.__antigravityZhObserver) {
+            try { window.__antigravityZhObserver.disconnect(); } catch (e) {}
+        }
         observer.observe(targetNode, {
             childList: true,
             subtree: true,
@@ -738,7 +726,24 @@ def build_js(dict_data):
             attributeFilter: ATTRS
         });
         window.__antigravityZhObserver = observer;
+        window.__antigravityZhObservedTarget = targetNode;
     }
+
+    window.__antigravityZhWalk = () => {
+        ensureObserver();
+        if (document.body) {
+            walk(document.body, true);
+            const vis = (document.body.innerText !== undefined ? document.body.innerText : (document.body.textContent || '')).trim();
+            if (window.__antigravityZh.translated > 0 || vis.length > 40) {
+                window.__antigravityZh.walkedNonEmpty = true;
+            }
+        }
+    };
+
+    /* ---------- 6. 首次全量扫描与监听挂载 ---------- */
+    ensureObserver();
+    if (document.body) window.__antigravityZhWalk();
+    document.addEventListener('DOMContentLoaded', () => window.__antigravityZhWalk(), { once: true });
 
     /* ---------- 8. 前端自驱动补扫定时器（彻底解决首次启动 React 异步挂载漏译） ---------- */
     if (window.__antigravityZhTimer) clearInterval(window.__antigravityZhTimer);
@@ -779,21 +784,31 @@ async def cdp_call(ws, msg_id, method, params=None, timeout=2.0):
             return msg
 
 
-async def inject_page_via_cdp(ws_url, dict_data):
+_PAGE_SCRIPT_IDS = {}
+
+
+async def inject_page_via_cdp(ws_url, dict_data, js_code=None):
     """通过 WebSocket 连接单个页面目标，直接注入前端自驱动汉化引擎（无侵入、防崩溃、秒级释放）。"""
-    js_code = build_js(dict_data)
+    if js_code is None:
+        js_code = build_js(dict_data)
     async with websockets.connect(ws_url, max_size=None) as ws:
-        # 1. 注册内核级新文档自动注入（刷新/路由跳转即生效，无需等待二次轮询）
+        # 1. 注册内核级新文档自动注入（热重载前先移除旧注册脚本，避免重复叠加）
         try:
             await cdp_call(ws, 1, "Page.enable", timeout=2.0)
-            await cdp_call(ws, 2, "Page.addScriptToEvaluateOnNewDocument", {"source": js_code}, timeout=2.0)
+            old_id = _PAGE_SCRIPT_IDS.get(ws_url)
+            if old_id:
+                await cdp_call(ws, 2, "Page.removeScriptToEvaluateOnNewDocument", {"identifier": old_id}, timeout=2.0)
+            add_res = await cdp_call(ws, 3, "Page.addScriptToEvaluateOnNewDocument", {"source": js_code}, timeout=2.0)
+            new_id = add_res.get("result", {}).get("identifier")
+            if new_id:
+                _PAGE_SCRIPT_IDS[ws_url] = new_id
         except Exception:
             pass
 
         # 2. 立即针对当前页面执行评估注入
         result = await cdp_call(
             ws,
-            3,
+            4,
             "Runtime.evaluate",
             {"expression": js_code, "returnByValue": True, "awaitPromise": False},
             timeout=5.0,
@@ -817,7 +832,7 @@ async def check_page_status(ws_url):
                 1,
                 "Runtime.evaluate",
                 {
-                    "expression": "!!(window.__antigravityZh && (window.__antigravityZh.translated > 0 || window.__antigravityZh.walkedNonEmpty))",
+                    "expression": "!!(window.__antigravityZh && window.__antigravityZhObserver && (window.__antigravityZh.translated > 0 || window.__antigravityZh.walkedNonEmpty))",
                     "returnByValue": True,
                 },
                 timeout=2.0,
@@ -869,21 +884,23 @@ def get_active_targets(port):
         return []
 
 
-async def inject_translation(dict_data):
+async def inject_translation(dict_data, port=None):
     """单次立即注入所有打开的窗口。"""
-    port = get_devtools_port(strict=True)
+    if not port:
+        port = get_devtools_port(strict=True)
     pages = get_active_targets(port)
     if not pages:
         print("[错误] 未找到处于活动状态的 Antigravity 界面窗口。")
         return False
 
+    js_code = build_js(dict_data)
     success = False
     for p in pages:
         ws_url = p.get("webSocketDebuggerUrl")
         if not ws_url:
             continue
         try:
-            info = await inject_page_via_cdp(ws_url, dict_data)
+            info = await inject_page_via_cdp(ws_url, dict_data, js_code=js_code)
             print(f"✅ [成功] 已注入窗口: {p.get('title', '主界面')}，翻译 {info.get('translated', 0)} 处文案。")
             success = True
         except Exception as e:
@@ -916,15 +933,14 @@ def _parse_ps_etime(etime_str):
 
 
 def _find_macos_antigravity_main_process():
-    """查找 macOS 上正在运行的 Antigravity 主进程，返回 (pid, uptime_sec, args) 或 None。"""
-    import subprocess
+    """返回 (pid, uptime_sec, args) 或 None；查询失败时抛出异常。"""
     try:
         res = subprocess.run(
             ["ps", "-Ao", "pid=,etime=,args="],
             capture_output=True, text=True, timeout=3,
         )
         if res.returncode != 0:
-            return None
+            raise RuntimeError("ps 进程查询失败")
         for line in res.stdout.splitlines():
             parts = line.strip().split(None, 2)
             if len(parts) < 3:
@@ -939,9 +955,23 @@ def _find_macos_antigravity_main_process():
             uptime = _parse_ps_etime(etime_s)
             if uptime is not None:
                 return (int(pid_s), uptime, args)
-    except Exception:
-        pass
+    except Exception as e:
+        raise RuntimeError("无法确认 macOS Antigravity 进程状态") from e
     return None
+
+
+def restart_macos_with_cdp(pid):
+    """退出后确认指定旧 PID 消失，再携带 CDP 参数启动。"""
+    subprocess.run(["osascript", "-e", 'tell application "Antigravity" to quit'], capture_output=True, timeout=5, check=True)
+    deadline = time.monotonic() + 5.0
+    while True:
+        res = subprocess.run(["ps", "-Ao", "pid="], capture_output=True, text=True, timeout=3, check=True)
+        if str(pid) not in res.stdout.split():
+            break
+        if time.monotonic() >= deadline:
+            raise RuntimeError("macOS 旧进程未在 5 秒内退出，取消带参重启")
+        time.sleep(0.25)
+    subprocess.run(["open", "-a", "Antigravity", "--args", f"--remote-debugging-port={DEFAULT_CDP_PORT}"], capture_output=True, timeout=5, check=True)
 
 
 def try_macos_cdp_takeover(state):
@@ -950,8 +980,8 @@ def try_macos_cdp_takeover(state):
     4 重安全锁：
       1. 主进程启动参数不含 --remote-debugging-port；
       2. 当前不存在活跃 DevToolsActivePort；
-      3. 主进程为刚启动的新进程（1s <= uptime <= 10s），绝不打断正在使用中的会话；
-      4. 同一 PID 仅处理一次且 30 秒冷却锁，防止死循环。
+      3. 主进程为刚启动的新进程（1s <= uptime <= 15s），绝不打断正在使用中的会话；
+      4. 同一 PID 仅处理一次，6 秒短冷却，连续失败 3 次后冷却 60 秒，防止死循环。
     可通过环境变量 ANTIGRAVITY_ZH_NO_TAKEOVER=1 关闭。
     """
     if sys.platform != "darwin":
@@ -960,17 +990,22 @@ def try_macos_cdp_takeover(state):
         return False
 
     now = time.monotonic()
-    if now - state.get("last_ts", 0.0) < 30.0:
+    cooldown = 60.0 if state.get("fail_count", 0) >= 3 else 6.0
+    if state.get("last_ts", 0.0) and now - state["last_ts"] < cooldown:
         return False
 
-    proc = _find_macos_antigravity_main_process()
+    try:
+        proc = _find_macos_antigravity_main_process()
+    except RuntimeError as e:
+        print(f"[警告] {e}，取消本次接管。", flush=True)
+        return False
     if not proc:
         return False
     pid, uptime, args = proc
 
     if "--remote-debugging-port" in args:
         return False
-    if uptime < 1 or uptime > 10:
+    if uptime < 1 or uptime > 15:
         return False
     handled = state.setdefault("handled_pids", set())
     if pid in handled:
@@ -981,18 +1016,11 @@ def try_macos_cdp_takeover(state):
         handled.clear()
         handled.add(pid)
     state["last_ts"] = now
+    state["fail_count"] = state.get("fail_count", 0) + 1
 
-    import subprocess
     print(f"[*] 检测到 macOS Antigravity 刚启动（PID {pid}，未携带 CDP 参数），正在零侵入切换为调试模式...", flush=True)
     try:
-        subprocess.run(["osascript", "-e", 'tell application "Antigravity" to quit'], capture_output=True, timeout=5)
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            cur = _find_macos_antigravity_main_process()
-            if not cur or cur[0] != pid:
-                break
-            time.sleep(0.25)
-        subprocess.run(["open", "-a", "Antigravity", "--args", "--remote-debugging-port=0"], capture_output=True, timeout=5)
+        restart_macos_with_cdp(pid)
         print("[*] 已自动带参重启 Antigravity，等待窗口就绪后注入中文...", flush=True)
         return True
     except Exception as e:
@@ -1002,12 +1030,23 @@ def try_macos_cdp_takeover(state):
 
 async def watch_daemon():
     """常驻守护进程：全自动侦测、热注入、重载以及内核级保活。"""
+    _daemon_mutex = None
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            _daemon_mutex = kernel32.CreateMutexW(None, False, "Local\\AntigravityZhWatchDaemon")
+            if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+                return
+        except Exception:
+            pass
     dict_data = load_dictionary()
+    js_code = build_js(dict_data)
     last_dict_mtime = get_dict_mtime()
     print(f"[*] 守护进程已启动，初始词典词条: {len(dict_data)}", flush=True)
 
     tick_counter = 0
-    macos_takeover_state = {"last_ts": 0.0, "handled_pids": set()}
+    macos_takeover_state = {"last_ts": 0.0, "fail_count": 0, "handled_pids": set()}
     while True:
         try:
             # 1. 检查词典文件是否有更新，热重载
@@ -1015,6 +1054,7 @@ async def watch_daemon():
             if cur_mtime > last_dict_mtime:
                 last_dict_mtime = cur_mtime
                 dict_data = load_dictionary()
+                js_code = build_js(dict_data)
                 print(f"[!] 检测到词典更新 ({time.strftime('%H:%M:%S')})，已重新加载 {len(dict_data)} 条词条。", flush=True)
                 # 触发全量重注
                 port = get_devtools_port(strict=False)
@@ -1022,10 +1062,13 @@ async def watch_daemon():
                     for p in get_active_targets(port):
                         ws = p.get("webSocketDebuggerUrl")
                         if ws:
-                            await inject_page_via_cdp(ws, dict_data)
+                            await inject_page_via_cdp(ws, dict_data, js_code=js_code)
 
             # 2. 检查调试端口与活跃页面
             port = get_devtools_port(strict=False)
+            if port is not None and sys.platform == "darwin":
+                macos_takeover_state["last_ts"] = 0.0
+                macos_takeover_state["fail_count"] = 0
             if not port:
                 if sys.platform == "darwin":
                     try_macos_cdp_takeover(macos_takeover_state)
@@ -1045,7 +1088,7 @@ async def watch_daemon():
                     # 发现页面未汉化（或页面刷新、导航发生）
                     print(f"[+] 检测到新页面或重新加载，正在热注入: {p.get('title', '未知窗口')} ({time.strftime('%H:%M:%S')})", flush=True)
                     try:
-                        info = await inject_page_via_cdp(ws, dict_data)
+                        info = await inject_page_via_cdp(ws, dict_data, js_code=js_code)
                         print(f"    ↳ 注入成功，已汉化 {info.get('translated', 0)} 处。", flush=True)
                     except Exception as err:
                         print(f"    ↳ 注入出现异常: {err}", flush=True)
@@ -1053,61 +1096,126 @@ async def watch_daemon():
                     # 页面已汉化，每隔 16 秒轻量唤醒一次遍历，确保异步加载的新组件被汉化
                     await refresh_page_walk(ws)
 
-        except Exception as e:
+        except Exception:
             # 守护进程捕获所有异常，保障持续稳定运行
             pass
 
         await asyncio.sleep(2.0)
 
 
-def setup_windows_autostart():
-    if sys.platform != "win32":
-        return
-    import shutil
-    import subprocess
-    startup_dir = os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs\Startup")
+def _ps_quote(value):
+    """将字符串安全转义为 PowerShell 单引号字面量，防止路径含单引号导致语法错误。"""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _get_windows_runtime_paths():
     pythonw = shutil.which("pythonw") or os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
     script = os.path.abspath(__file__)
     workdir = os.path.dirname(script)
+    return pythonw, script, workdir
 
-    # 1. 计划任务保活 (完全独立于 Antigravity 客户端生命周期)
+
+def _run_ps_temp_script(ps_script, filename, timeout=15):
+    workdir = os.path.dirname(os.path.abspath(__file__))
+    tmp_ps = os.path.join(workdir, filename)
     try:
-        sch_cmd = f'schtasks /create /tn "Antigravity-ZH-Daemon" /tr "\"{pythonw}\" \"{script}\" --watch" /sc onlogon /rl highest /f'
-        subprocess.run(sch_cmd, shell=True, capture_output=True)
+        with open(tmp_ps, "w", encoding="utf-8-sig") as f:
+            f.write(ps_script)
+        return subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp_ps],
+            capture_output=True, text=True, timeout=timeout,
+        )
+    finally:
+        if os.path.exists(tmp_ps):
+            try:
+                os.remove(tmp_ps)
+            except Exception:
+                pass
+
+
+def _is_windows_daemon_alive(exclude_pid=None):
+    """检查 Windows 后台是否已有常驻的 antigravity_zh.py --watch 守护进程在运行。"""
+    if sys.platform != "win32":
+        return False
+    excl = exclude_pid if exclude_pid is not None else os.getpid()
+    ps_cmd = (
+        f"$p = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | "
+        f"Where-Object {{ $_.Name -like 'python*' -and $_.CommandLine -like '*antigravity_zh.py*--watch*' -and $_.ProcessId -ne {excl} -and $_.ProcessId -ne $PID }}; "
+        f"if ($p) {{ Write-Output 'ALIVE' }}"
+    )
+    try:
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+            capture_output=True, text=True, timeout=5,
+        )
+        return "ALIVE" in (res.stdout or "")
+    except Exception:
+        return False
+
+
+def setup_windows_autostart():
+    if sys.platform != "win32":
+        return
+    startup_dir = os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs\Startup")
+    pythonw, script, workdir = _get_windows_runtime_paths()
+    tr_cmd = f'"{pythonw}" "{script}" --watch'
+
+    # 1. 计划任务保活（免管理员提权：不强制 /rl highest；若非管理员下 /sc onlogon 受限则自动回退至普通用户可创建的 /sc once 任务，供 schtasks /run 脱离进程树启动）
+    task_ok = False
+    for sch_args in (
+        ["schtasks", "/create", "/tn", "Antigravity-ZH-Daemon", "/tr", tr_cmd, "/sc", "onlogon", "/f"],
+        ["schtasks", "/create", "/tn", "Antigravity-ZH-Daemon", "/tr", tr_cmd, "/sc", "once", "/st", "00:00", "/f"],
+    ):
+        try:
+            res = subprocess.run(sch_args, capture_output=True, text=True, timeout=10)
+            if res.returncode == 0:
+                task_ok = True
+                break
+        except Exception:
+            pass
+
+    # 2. 当前用户注册表 HKCU\...\Run 开机自启（免管理员权限，100% 普通用户可用）
+    try:
+        subprocess.run(
+            [
+                "reg", "add",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v", "Antigravity-ZH",
+                "/t", "REG_SZ",
+                "/d", tr_cmd,
+                "/f",
+            ],
+            capture_output=True, timeout=5,
+        )
     except Exception:
         pass
 
-    # 2. 启动文件夹自启快捷方式 (双保险)
+    # 3. 启动文件夹自启快捷方式（双保险）
     if os.path.isdir(startup_dir):
         lnk_path = os.path.join(startup_dir, "Antigravity-ZH.lnk")
         ps_script = f"""
 $ws = New-Object -COM WScript.Shell
-$s = $ws.CreateShortcut('{lnk_path}')
-$s.TargetPath = '{pythonw}'
-$s.Arguments = '"{script}" --watch'
-$s.WorkingDirectory = '{workdir}'
+$s = $ws.CreateShortcut({_ps_quote(lnk_path)})
+$s.TargetPath = {_ps_quote(pythonw)}
+$s.Arguments = {_ps_quote(f'"{script}" --watch')}
+$s.WorkingDirectory = {_ps_quote(workdir)}
 $s.WindowStyle = 7
 $s.Save()
 """
-        tmp_ps = os.path.join(workdir, "_tmp_shortcut.ps1")
         try:
-            with open(tmp_ps, "w", encoding="utf-8-sig") as f:
-                f.write(ps_script)
-            subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp_ps], capture_output=True)
-        finally:
-            if os.path.exists(tmp_ps):
-                try:
-                    os.remove(tmp_ps)
-                except Exception:
-                    pass
-    print("[*] Windows 系统级开机自启与计划任务已配置完成。")
+            _run_ps_temp_script(ps_script, "_tmp_shortcut.ps1", timeout=10)
+        except Exception:
+            pass
+    if task_ok:
+        print("[*] Windows 免提权开机自启与计划任务已配置完成。")
+    else:
+        print("[*] Windows 当前用户开机自启已配置完成。")
 
 
 def kill_existing_daemons():
     if sys.platform == "win32":
-        import subprocess
         my_pid = os.getpid()
-        ps_cmd = f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -like '*antigravity_zh.py*--watch*' -and $_.ProcessId -ne {my_pid} }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
+        ps_cmd = f"Get-CimInstance Win32_Process | Where-Object {{ $_.Name -like 'python*' -and $_.CommandLine -like '*antigravity_zh.py*--watch*' -and $_.ProcessId -ne {my_pid} -and $_.ProcessId -ne $PID }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"
         try:
             subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd], capture_output=True)
         except Exception:
@@ -1116,29 +1224,57 @@ def kill_existing_daemons():
 
 def launch_background_daemon():
     if sys.platform == "win32":
-        import shutil
-        import subprocess
-        # 优先通过系统计划任务启动，脱离当前进程树完全独立常驻
+        pythonw, script, workdir = _get_windows_runtime_paths()
+
+        # 方式 1：优先通过系统计划任务 (svchost.exe) 启动，天然脱离 Antigravity Job Object 与进程树
         try:
-            res = subprocess.run('schtasks /run /tn "Antigravity-ZH-Daemon"', shell=True, capture_output=True)
+            res = subprocess.run(["schtasks", "/run", "/tn", "Antigravity-ZH-Daemon"], capture_output=True, timeout=8)
             if res.returncode == 0:
-                print("[*] 后台守护进程已通过系统服务常驻启动。")
+                time.sleep(0.6)
+                if _is_windows_daemon_alive():
+                    print("[*] 后台守护进程已通过系统服务独立常驻启动（退出客户端不会中断守护）。")
+                    return
+        except Exception:
+            pass
+
+        # 方式 2：通过 WMI Win32_Process.Create 由系统 WmiPrvSE.exe 托管拉起，同样完全脱离当前进程树且免管理员权限
+        try:
+            watch_cmdline = f'"{pythonw}" "{script}" --watch'
+            wmi_cmd = (
+                f"$cmd = {_ps_quote(watch_cmdline)}; "
+                f"$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
+                f"-Arguments @{{ CommandLine = $cmd; CurrentDirectory = {_ps_quote(workdir)} }} -ErrorAction Stop; "
+                f"if ($r.ReturnValue -eq 0) {{ Write-Output $r.ProcessId }}"
+            )
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", wmi_cmd],
+                capture_output=True, text=True, timeout=8,
+            )
+            out = (res.stdout or "").strip().splitlines()
+            if out and out[-1].strip().isdigit():
+                print(f"[*] 后台守护进程已通过系统 WMI 服务独立常驻启动 (PID: {out[-1].strip()})。")
                 return
         except Exception:
             pass
-        pythonw = shutil.which("pythonw") or os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-        script = os.path.abspath(__file__)
-        workdir = os.path.dirname(script)
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
-        p = subprocess.Popen([pythonw, script, "--watch"], cwd=workdir, creationflags=flags)
+
+        # 方式 3：兜底使用 CREATE_BREAKAWAY_FROM_JOB | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
+        CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+        base_flags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+        )
+        try:
+            p = subprocess.Popen([pythonw, script, "--watch"], cwd=workdir, creationflags=base_flags | CREATE_BREAKAWAY_FROM_JOB)
+        except OSError:
+            p = subprocess.Popen([pythonw, script, "--watch"], cwd=workdir, creationflags=base_flags)
         print(f"[*] 后台守护进程已启动 (PID: {p.pid})")
 
 
 def _update_windows_shortcuts(add_flag=True):
-    """零侵入地为现有 Antigravity 快捷方式添加或移除 --remote-debugging-port=0（适配 Antigravity 2.33.0+）。"""
+    """零侵入地为现有 Antigravity 快捷方式添加或移除 --remote-debugging-port=19222（适配 Antigravity 2.33.0+）。"""
     if sys.platform != "win32":
         return 0
-    import subprocess
     mode = "add" if add_flag else "remove"
     ps_script = f"""
 $mode = '{mode}'
@@ -1153,21 +1289,25 @@ $dirs = @(
 
 $updated = 0
 foreach ($d in $dirs) {{
-    $links = Get-ChildItem -Path $d -Filter '*.lnk' -Recurse -ErrorAction SilentlyContinue
+    $links = Get-ChildItem -Path $d -Filter '*.lnk' -Depth 2 -ErrorAction SilentlyContinue
     foreach ($lnk in $links) {{
         try {{
             $s = $ws.CreateShortcut($lnk.FullName)
             if ($s.TargetPath -and ($s.TargetPath -match '(?i)antigravity\\.exe$')) {{
                 $curArgs = if ($s.Arguments) {{ $s.Arguments.Trim() }} else {{ '' }}
                 if ($mode -eq 'add') {{
-                    if ($curArgs -notmatch '--remote-debugging-port') {{
-                        $s.Arguments = if ($curArgs) {{ "$curArgs --remote-debugging-port=0" }} else {{ '--remote-debugging-port=0' }}
+                    if ($curArgs -match '(?:^|\\s)--remote-debugging-port=0(?=\\s|$)') {{
+                        $s.Arguments = ($curArgs -replace '(?:^|\\s)--remote-debugging-port=0(?=\\s|$)', ' --remote-debugging-port=19222').Trim()
+                        $s.Save()
+                        $updated++
+                    }} elseif ($curArgs -notmatch '--remote-debugging-port') {{
+                        $s.Arguments = if ($curArgs) {{ "$curArgs --remote-debugging-port=19222" }} else {{ '--remote-debugging-port=19222' }}
                         $s.Save()
                         $updated++
                     }}
                 }} else {{
-                    if ($curArgs -match '--remote-debugging-port=0') {{
-                        $newArgs = ($curArgs -replace '(?:^|\\s)--remote-debugging-port=0(?=\\s|$)', ' ').Trim()
+                    if ($curArgs -match '(?:^|\\s)--remote-debugging-port=(?:0|19222)(?=\\s|$)') {{
+                        $newArgs = ($curArgs -replace '(?:^|\\s)--remote-debugging-port=(?:0|19222)(?=\\s|$)', ' ').Trim()
                         $s.Arguments = $newArgs
                         $s.Save()
                         $updated++
@@ -1179,34 +1319,22 @@ foreach ($d in $dirs) {{
 }}
 Write-Output $updated
 """
-    workdir = os.path.dirname(os.path.abspath(__file__))
-    tmp_ps = os.path.join(workdir, "_tmp_patch_lnk.ps1")
     try:
-        with open(tmp_ps, "w", encoding="utf-8-sig") as f:
-            f.write(ps_script)
-        res = subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp_ps],
-            capture_output=True, text=True, timeout=20,
-        )
+        res = _run_ps_temp_script(ps_script, "_tmp_patch_lnk.ps1", timeout=20)
         out = (res.stdout or "").strip().splitlines()
         return int(out[-1]) if out and out[-1].strip().isdigit() else 0
     except Exception:
         return 0
-    finally:
-        if os.path.exists(tmp_ps):
-            try:
-                os.remove(tmp_ps)
-            except Exception:
-                pass
 
 
 def patch_windows_shortcuts():
     count = _update_windows_shortcuts(add_flag=True)
     if count > 0:
-        print(f"[*] 已为 {count} 个 Antigravity 原版快捷方式开启零侵入调试参数（--remote-debugging-port=0），适配 2.33.0+。")
+        print(f"[*] 已为 {count} 个 Antigravity 原版快捷方式开启零侵入调试参数（--remote-debugging-port=19222），适配 2.33.0+。")
     else:
         print("[*] 已检查 Antigravity 快捷方式（已包含调试参数或未发现待修改项）。")
 
+    print("[提示] 第三方代理启动器请添加 --remote-debugging-port=19222。")
 
 def unpatch_windows_shortcuts():
     count = _update_windows_shortcuts(add_flag=False)
@@ -1215,7 +1343,19 @@ def unpatch_windows_shortcuts():
 
 
 if __name__ == "__main__":
-    if "--restore-shortcuts" in sys.argv:
+    if "--restart-macos" in sys.argv:
+        if sys.platform != "darwin":
+            sys.exit("[错误] --restart-macos 仅支持 macOS。")
+        try:
+            proc = _find_macos_antigravity_main_process()
+            if proc is None:
+                sys.exit("[警告] 未找到 Antigravity 主进程，请手动重新打开。")
+            restart_macos_with_cdp(proc[0])
+        except Exception as e:
+            sys.exit(f"[警告] 取消自动重启：{e}")
+    elif "--check-port" in sys.argv:
+        sys.exit(0 if get_devtools_port(strict=False) else 1)
+    elif "--restore-shortcuts" in sys.argv:
         unpatch_windows_shortcuts()
     elif "--setup" in sys.argv or "--install" in sys.argv:
         print("[*] 正在配置 Antigravity 汉化后台守护与开机自启...")
@@ -1226,13 +1366,13 @@ if __name__ == "__main__":
         translations = load_dictionary()
         print(f"[*] 已加载汉化词条数量: {len(translations)}")
         port = get_devtools_port(strict=False)
-        if port and _is_cdp_port_alive(port):
-            asyncio.run(inject_translation(translations))
+        if port:
+            asyncio.run(inject_translation(translations, port=port))
             print("[*] 安装与热注入完成！")
         else:
             if is_antigravity_running():
                 print("[提示] 检测到当前 Antigravity 窗口启动时未携带远程调试参数（2.33.0+ 默认关闭 CDP）。")
-                print("       后台守护进程与快捷方式已全部配置完成：请完全退出 Antigravity 并通过桌面/开始菜单图标重新打开，约 2 秒内即自动完成全中文汉化！")
+                print("       后台守护进程与快捷方式已全部配置完成（--remote-debugging-port=19222）：请完全退出 Antigravity 并通过桌面/开始菜单图标重新打开，约 2 秒内即自动完成全中文汉化！")
             else:
                 print("[提示] 当前未启动 Antigravity。后台守护进程已就绪，下次打开客户端后约 2 秒内将自动完成全中文汉化！")
     elif "--watch" in sys.argv or "-w" in sys.argv:
