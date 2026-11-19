@@ -36,8 +36,10 @@
   随手编辑保存 `zh-CN.json`，守护进程 2 秒内自动感知更新并热刷新所有窗口，无需重启应用或守护进程。
 - 🎯 **4140+ 深度精炼词条 + 246 条动态正则**：
   基于 Antigravity **2.33.0** 官方前端 bundle 深度提取与去重校对，全面覆盖菜单栏、侧栏、设置面板（含快捷键方案 Keybinding Scheme / 安全与权限预设 / 外观 / 通用 / 浏览器与浏览数据 Browsing Data & Cookies by Site / 界面与对话布局）、SSH 远程主机（SSH Host）与环境配置脚本、移动端与跨设备远程接力（Remote Control）、上下文窗口与模型配额指示器、旁路提问（Side Question / `/btw` 与选区插入）、插件包管理与审查（Plugin Bundles）、协调者与蜂群协作看板（Coordinators & Swarm Board `plugin://` 视图）、CEL 表达式参考、插件市场与连接器（Marketplace & Connectors）、定时自动化（Automations）、GitHub 权限策略、语音听写模式、快捷键提示、Web 预览、云端/Cog 工作区、幕僚长画布；内置 246 条动态正则规则，完美匹配耗时统计、配额与上下文占用比例、插件包安装/审查提示、旁路提问动态标题、后台任务与系统提示。
-- 🔧 **原生适配 Antigravity 2.33.0+（零侵入开启 CDP 端口）**：
-  Antigravity 2.33.0 起默认关闭了本地 CDP 调试端口（仅在启动参数包含 `--remote-debugging-port` 时生成 `DevToolsActivePort`）。本版本在安装时**绝不修改任何官方程序文件或 `app.asar`**，仅自动为 Windows 原版快捷方式 / Linux `.desktop` 启动器附加 `--remote-debugging-port=0`（卸载时自动还原），同时支持 `--port` / `ANTIGRAVITY_CDP_PORT` 环境变量与进程级智能诊断提示。
+- 🔧 **原生适配 Antigravity 2.33.0+（全平台免手动敲命令）**：
+  Antigravity 2.33.0 起默认关闭了本地 CDP 调试端口（仅在启动参数包含 `--remote-debugging-port` 时生成 `DevToolsActivePort`）。本版本在安装时**绝不修改任何官方程序文件、`.app` 签名或 `app.asar`**：
+  - **Windows / Linux**：自动为原版快捷方式 / `.desktop` 启动器附加 `--remote-debugging-port=0`（卸载时自动还原）。
+  - **macOS**：LaunchAgent 后台守护进程内置**首启自动带参接管**（4 重安全锁：仅在客户端刚启动 ≤10 秒、无 CDP 端口时触发，带 30 秒冷却，绝不打断正在使用的对话），用户照常点击官方原版图标即可自动完成汉化，**永远无需手动敲终端命令**（如需关闭可设 `ANTIGRAVITY_ZH_NO_TAKEOVER=1`）。
 - 🖥️ **Windows / macOS / Linux 全平台支持**：
   - **Windows**：双击 `install.bat` 极速安装，自动配置开机静默后台守护。
   - **macOS**：一键脚本自动配置 `launchd` 用户守护服务（LaunchAgent）。
@@ -162,7 +164,7 @@ antigravity-chinese/
 ### Q1: 为什么 Antigravity 启动后没有自动变成中文？
 - **Antigravity 2.33.0+ 特别说明**：2.33.0 起官方默认关闭了 CDP 调试端口（需携带 `--remote-debugging-port=0` 启动参数才会生成 `DevToolsActivePort`）：
   - **Windows / Linux**：安装脚本已自动为现有快捷方式 / `.desktop` 启动器添加该参数；若安装前已打开客户端，请**完全退出（含系统托盘）后重新打开**即可在 2 秒内自动汉化。
-  - **macOS**：为保持 `.app` 签名零侵入，请通过终端执行 `open -a Antigravity --args --remote-debugging-port=0` 启动。
+  - **macOS**：后台守护进程已开启「首启自动带参接管」（不破坏官方 `.app` 签名）。若安装前已打开客户端，只需按 `Cmd+Q` 完全退出，再**照常点击程序坞/启动台里的官方原版图标**打开，守护进程会自动带参拉起并在 2 秒内完成汉化，无需手动输入任何命令。
 - 请确认后台守护进程是否正常运行：
   - **Windows**: 打开任务管理器，查看是否有 `pythonw.exe` 进程在运行。
   - **macOS**: 执行 `launchctl list | grep antigravity` 查看状态。

@@ -128,7 +128,8 @@ def get_devtools_port(strict=True):
             if sys.platform == "win32":
                 print("       请完全退出 Antigravity（含系统托盘），再通过桌面/开始菜单快捷方式重新启动即可自动汉化。")
             elif sys.platform == "darwin":
-                print("       请完全退出后执行：open -a Antigravity --args --remote-debugging-port=0")
+                print("       请按 Cmd+Q 完全退出 Antigravity，再直接点击原版图标重新打开（后台守护进程会自动接管开启调试端口并汉化）。")
+                print("       若未启用守护进程，也可手动执行：open -a Antigravity --args --remote-debugging-port=0")
             else:
                 print("       请完全退出后通过应用图标重新启动，或执行：antigravity --remote-debugging-port=0")
         else:
@@ -891,6 +892,114 @@ async def inject_translation(dict_data):
     return success
 
 
+def _parse_ps_etime(etime_str):
+    """解析 macOS `ps` 的 etime 格式（mm:ss / hh:mm:ss / dd-hh:mm:ss）为秒数。"""
+    s = (etime_str or "").strip()
+    if not s:
+        return None
+    days = 0
+    if "-" in s:
+        d_part, s = s.split("-", 1)
+        if not d_part.isdigit():
+            return None
+        days = int(d_part)
+    parts = s.split(":")
+    if not all(p.isdigit() for p in parts):
+        return None
+    if len(parts) == 2:
+        hours, mins, secs = 0, int(parts[0]), int(parts[1])
+    elif len(parts) == 3:
+        hours, mins, secs = int(parts[0]), int(parts[1]), int(parts[2])
+    else:
+        return None
+    return days * 86400 + hours * 3600 + mins * 60 + secs
+
+
+def _find_macos_antigravity_main_process():
+    """查找 macOS 上正在运行的 Antigravity 主进程，返回 (pid, uptime_sec, args) 或 None。"""
+    import subprocess
+    try:
+        res = subprocess.run(
+            ["ps", "-Ao", "pid=,etime=,args="],
+            capture_output=True, text=True, timeout=3,
+        )
+        if res.returncode != 0:
+            return None
+        for line in res.stdout.splitlines():
+            parts = line.strip().split(None, 2)
+            if len(parts) < 3:
+                continue
+            pid_s, etime_s, args = parts
+            if not pid_s.isdigit():
+                continue
+            if "Antigravity.app/Contents/MacOS/Antigravity" not in args:
+                continue
+            if "--type=" in args:
+                continue
+            uptime = _parse_ps_etime(etime_s)
+            if uptime is not None:
+                return (int(pid_s), uptime, args)
+    except Exception:
+        pass
+    return None
+
+
+def try_macos_cdp_takeover(state):
+    """macOS 方案一：首启自动带参接管（不修改官方 .app 签名，照常点原版图标即可）。
+
+    4 重安全锁：
+      1. 主进程启动参数不含 --remote-debugging-port；
+      2. 当前不存在活跃 DevToolsActivePort；
+      3. 主进程为刚启动的新进程（1s <= uptime <= 10s），绝不打断正在使用中的会话；
+      4. 同一 PID 仅处理一次且 30 秒冷却锁，防止死循环。
+    可通过环境变量 ANTIGRAVITY_ZH_NO_TAKEOVER=1 关闭。
+    """
+    if sys.platform != "darwin":
+        return False
+    if os.environ.get("ANTIGRAVITY_ZH_NO_TAKEOVER") == "1":
+        return False
+
+    now = time.monotonic()
+    if now - state.get("last_ts", 0.0) < 30.0:
+        return False
+
+    proc = _find_macos_antigravity_main_process()
+    if not proc:
+        return False
+    pid, uptime, args = proc
+
+    if "--remote-debugging-port" in args:
+        return False
+    if uptime < 1 or uptime > 10:
+        return False
+    handled = state.setdefault("handled_pids", set())
+    if pid in handled:
+        return False
+
+    handled.add(pid)
+    if len(handled) > 64:
+        handled.clear()
+        handled.add(pid)
+    state["last_ts"] = now
+
+    import subprocess
+    print(f"[*] 检测到 macOS Antigravity 刚启动（PID {pid}，未携带 CDP 参数），正在零侵入切换为调试模式...", flush=True)
+    try:
+        subprocess.run(["osascript", "-e", 'tell application "Antigravity" to quit'], capture_output=True, timeout=5)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            cur = _find_macos_antigravity_main_process()
+            if not cur or cur[0] != pid:
+                break
+            time.sleep(0.25)
+        subprocess.run(["open", "-a", "Antigravity", "--args", "--remote-debugging-port=0"], capture_output=True, timeout=5)
+        print("[*] 已自动带参重启 Antigravity，等待窗口就绪后注入中文...", flush=True)
+        return True
+    except Exception as e:
+        print(f"[警告] macOS 自动带参接管失败: {e}", flush=True)
+        return False
+
+
 async def watch_daemon():
     """常驻守护进程：全自动侦测、热注入、重载以及内核级保活。"""
     dict_data = load_dictionary()
@@ -898,6 +1007,7 @@ async def watch_daemon():
     print(f"[*] 守护进程已启动，初始词典词条: {len(dict_data)}", flush=True)
 
     tick_counter = 0
+    macos_takeover_state = {"last_ts": 0.0, "handled_pids": set()}
     while True:
         try:
             # 1. 检查词典文件是否有更新，热重载
@@ -917,6 +1027,8 @@ async def watch_daemon():
             # 2. 检查调试端口与活跃页面
             port = get_devtools_port(strict=False)
             if not port:
+                if sys.platform == "darwin":
+                    try_macos_cdp_takeover(macos_takeover_state)
                 await asyncio.sleep(2.0)
                 continue
 

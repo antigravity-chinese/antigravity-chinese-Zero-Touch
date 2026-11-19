@@ -69,7 +69,7 @@ if [ "$OS" = "Darwin" ]; then
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin</string>
+        <string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin</string>
     </dict>
 </dict>
 </plist>
@@ -136,9 +136,18 @@ if [ $PORT_FOUND -eq 1 ]; then
     python3 "$CURRENT_DIR/antigravity_zh.py" || true
 else
     if [ "$OS" = "Darwin" ]; then
-        echo "提示: 未检测到 CDP 调试端口。Antigravity 2.33.0+ 默认关闭了远程调试端口，"
-        echo "      请使用以下命令启动（启动后守护进程会在 2 秒内自动汉化）："
-        echo "      open -a Antigravity --args --remote-debugging-port=0"
+        echo "✅ macOS 后台守护进程已开启「首启自动带参接管」（零侵入，不改动官方 .app 签名）。"
+        echo "提示: 当前 Antigravity 窗口启动时未携带 CDP 参数，后续无需手动输入任何终端命令："
+        echo "      请直接按 Cmd+Q 完全退出 Antigravity，再照常点击程序坞/启动台的原版图标打开，约 2 秒内自动全中文汉化！"
+        if [ -t 0 ] && pgrep -if "Antigravity.app/Contents/MacOS/Antigravity" >/dev/null 2>&1; then
+            read -r -p "是否现在自动重启 Antigravity 以立即生效？[y/N] " REPLY || REPLY=""
+            if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+                osascript -e 'tell application "Antigravity" to quit' >/dev/null 2>&1 || true
+                sleep 2
+                open -a Antigravity --args --remote-debugging-port=0
+                echo "✅ 已自动重启 Antigravity，后台守护进程将在 2 秒内完成汉化。"
+            fi
+        fi
     else
         echo "提示: 未检测到 CDP 调试端口。若 Antigravity 已打开，请完全退出后通过应用图标重新启动（2.33.0+ 需通过已更新的启动器启动）。"
     fi
