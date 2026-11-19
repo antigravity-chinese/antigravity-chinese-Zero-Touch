@@ -62,19 +62,77 @@ def get_dict_mtime():
         return 0
 
 
+def _is_cdp_port_alive(port):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=1.0) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def is_antigravity_running():
+    """检测本机是否已有 Antigravity 客户端进程正在运行（用于区分未启动与未开启 CDP 端口）。"""
+    import subprocess
+    try:
+        if sys.platform == "win32":
+            res = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq Antigravity.exe", "/NH"],
+                capture_output=True, text=True, timeout=3,
+            )
+            return "antigravity.exe" in res.stdout.lower()
+        else:
+            res = subprocess.run(["pgrep", "-if", "antigravity"], capture_output=True, text=True, timeout=3)
+            return res.returncode == 0
+    except Exception:
+        return False
+
+
+def _get_cli_port():
+    for i, arg in enumerate(sys.argv[1:], start=1):
+        if arg.startswith("--port="):
+            val = arg.split("=", 1)[1].strip()
+            if val.isdigit():
+                return val
+        elif arg == "--port" and i + 1 < len(sys.argv) and sys.argv[i + 1].strip().isdigit():
+            return sys.argv[i + 1].strip()
+    env_port = os.environ.get("ANTIGRAVITY_CDP_PORT", "").strip()
+    if env_port.isdigit():
+        return env_port
+    return None
+
+
 def get_devtools_port(strict=True):
+    override = _get_cli_port()
+    if override and _is_cdp_port_alive(override):
+        return override
+
+    fallback_port = None
     for d in get_config_dirs():
         pf = os.path.join(d, "DevToolsActivePort")
         if os.path.exists(pf):
             try:
                 with open(pf, "r", encoding="utf-8") as f:
                     port = f.readline().strip()
-                    if port:
-                        return port
+                    if port and port.isdigit():
+                        if _is_cdp_port_alive(port):
+                            return port
+                        if fallback_port is None:
+                            fallback_port = port
             except Exception:
                 pass
+    if fallback_port and not strict:
+        return fallback_port
     if strict:
-        print("[错误] 未检测到正在运行的 Antigravity。请先启动 Antigravity 客户端！")
+        if is_antigravity_running():
+            print("[提示] 检测到 Antigravity 正在运行，但未开启 CDP 远程调试端口（Antigravity 2.33.0+ 默认关闭了该端口）。")
+            if sys.platform == "win32":
+                print("       请完全退出 Antigravity（含系统托盘），再通过桌面/开始菜单快捷方式重新启动即可自动汉化。")
+            elif sys.platform == "darwin":
+                print("       请完全退出后执行：open -a Antigravity --args --remote-debugging-port=0")
+            else:
+                print("       请完全退出后通过应用图标重新启动，或执行：antigravity --remote-debugging-port=0")
+        else:
+            print("[错误] 未检测到正在运行的 Antigravity。请先启动 Antigravity 客户端！")
         sys.exit(1)
     return None
 
@@ -552,7 +610,19 @@ def build_js(dict_data):
         [/^Select model, current:\s*(.+)$/i, m => `选择模型，当前：${m[1]}`],
         [/^Select project, current:\s*(.+)$/i, m => `选择项目，当前：${m[1]}`],
         [/^Agent permissions preset selector, current:\s*(.+)$/i, m => `智能体权限预设选择器，当前：${m[1]}`],
-        [/^(\d+)\s+folders?\s+in this project could not be loaded because their locations are invalid\.$/i, m => `此项目中有 ${m[1]} 个文件夹因路径无效而无法加载。`]
+        [/^(\d+)\s+folders?\s+in this project could not be loaded because their locations are invalid\.$/i, m => `此项目中有 ${m[1]} 个文件夹因路径无效而无法加载。`],
+
+        // ── Antigravity 2.33.0 新增动态规则（插件包 / 旁路提问） ──
+        [/^Side question\s*\(conversation\s+(.+?)\):\s*(.+)$/i, m => `旁路提问（对话 ${m[1]}）：${m[2]}`],
+        [/^Add bundle\s+(.+)$/i, m => `添加插件包 ${m[1]}`],
+        [/^Adding plugins from\s+(.+)$/i, m => `正在从 ${m[1]} 添加插件`],
+        [/^Added\s+(.+?)\s+and installed\s+(\d+)\s+plugins?\.$/i, m => `已添加 ${m[1]} 并安装了 ${m[2]} 个插件。`],
+        [/^Added\s+(.+?)\.$/i, m => `已添加 ${m[1]}。`],
+        [/^Removed\s+(.+?)\.$/i, m => `已移除 ${m[1]}。`],
+        [/^This plugin in\s+(.+?)\s+may have looser code review\.\s*Review their contents before adding the bundle\.$/i,
+            m => `${m[1]} 中的此插件代码审查可能较宽松。添加插件包前请先审查其内容。`],
+        [/^These plugins in\s+(.+?)\s+may have looser code review\.\s*Review their contents before adding the bundle\.$/i,
+            m => `${m[1]} 中的这些插件代码审查可能较宽松。添加插件包前请先审查其内容。`]
     ];
 
     /* ---------- 4. 单串翻译 ---------- */
@@ -952,16 +1022,107 @@ def launch_background_daemon():
         print(f"[*] 后台守护进程已启动 (PID: {p.pid})")
 
 
+def _update_windows_shortcuts(add_flag=True):
+    """零侵入地为现有 Antigravity 快捷方式添加或移除 --remote-debugging-port=0（适配 Antigravity 2.33.0+）。"""
+    if sys.platform != "win32":
+        return 0
+    import subprocess
+    mode = "add" if add_flag else "remove"
+    ps_script = f"""
+$mode = '{mode}'
+$ws = New-Object -COM WScript.Shell
+$dirs = @(
+    [Environment]::GetFolderPath('Desktop'),
+    [Environment]::GetFolderPath('CommonDesktopDirectory'),
+    (Join-Path $env:APPDATA 'Microsoft\\Windows\\Start Menu\\Programs'),
+    (Join-Path $env:ProgramData 'Microsoft\\Windows\\Start Menu\\Programs'),
+    (Join-Path $env:APPDATA 'Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar')
+) | Where-Object {{ $_ -and (Test-Path $_) }} | Select-Object -Unique
+
+$updated = 0
+foreach ($d in $dirs) {{
+    $links = Get-ChildItem -Path $d -Filter '*.lnk' -Recurse -ErrorAction SilentlyContinue
+    foreach ($lnk in $links) {{
+        try {{
+            $s = $ws.CreateShortcut($lnk.FullName)
+            if ($s.TargetPath -and ($s.TargetPath -match '(?i)antigravity\\.exe$')) {{
+                $curArgs = if ($s.Arguments) {{ $s.Arguments.Trim() }} else {{ '' }}
+                if ($mode -eq 'add') {{
+                    if ($curArgs -notmatch '--remote-debugging-port') {{
+                        $s.Arguments = if ($curArgs) {{ "$curArgs --remote-debugging-port=0" }} else {{ '--remote-debugging-port=0' }}
+                        $s.Save()
+                        $updated++
+                    }}
+                }} else {{
+                    if ($curArgs -match '--remote-debugging-port=0') {{
+                        $newArgs = ($curArgs -replace '(?:^|\\s)--remote-debugging-port=0(?=\\s|$)', ' ').Trim()
+                        $s.Arguments = $newArgs
+                        $s.Save()
+                        $updated++
+                    }}
+                }}
+            }}
+        }} catch {{}}
+    }}
+}}
+Write-Output $updated
+"""
+    workdir = os.path.dirname(os.path.abspath(__file__))
+    tmp_ps = os.path.join(workdir, "_tmp_patch_lnk.ps1")
+    try:
+        with open(tmp_ps, "w", encoding="utf-8-sig") as f:
+            f.write(ps_script)
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", tmp_ps],
+            capture_output=True, text=True, timeout=20,
+        )
+        out = (res.stdout or "").strip().splitlines()
+        return int(out[-1]) if out and out[-1].strip().isdigit() else 0
+    except Exception:
+        return 0
+    finally:
+        if os.path.exists(tmp_ps):
+            try:
+                os.remove(tmp_ps)
+            except Exception:
+                pass
+
+
+def patch_windows_shortcuts():
+    count = _update_windows_shortcuts(add_flag=True)
+    if count > 0:
+        print(f"[*] 已为 {count} 个 Antigravity 原版快捷方式开启零侵入调试参数（--remote-debugging-port=0），适配 2.33.0+。")
+    else:
+        print("[*] 已检查 Antigravity 快捷方式（已包含调试参数或未发现待修改项）。")
+
+
+def unpatch_windows_shortcuts():
+    count = _update_windows_shortcuts(add_flag=False)
+    if count > 0:
+        print(f"[*] 已还原 {count} 个 Antigravity 快捷方式启动参数。")
+
+
 if __name__ == "__main__":
-    if "--setup" in sys.argv or "--install" in sys.argv:
+    if "--restore-shortcuts" in sys.argv:
+        unpatch_windows_shortcuts()
+    elif "--setup" in sys.argv or "--install" in sys.argv:
         print("[*] 正在配置 Antigravity 汉化后台守护与开机自启...")
         kill_existing_daemons()
+        patch_windows_shortcuts()
         setup_windows_autostart()
         launch_background_daemon()
         translations = load_dictionary()
         print(f"[*] 已加载汉化词条数量: {len(translations)}")
-        asyncio.run(inject_translation(translations))
-        print("[*] 安装与热注入完成！")
+        port = get_devtools_port(strict=False)
+        if port and _is_cdp_port_alive(port):
+            asyncio.run(inject_translation(translations))
+            print("[*] 安装与热注入完成！")
+        else:
+            if is_antigravity_running():
+                print("[提示] 检测到当前 Antigravity 窗口启动时未携带远程调试参数（2.33.0+ 默认关闭 CDP）。")
+                print("       后台守护进程与快捷方式已全部配置完成：请完全退出 Antigravity 并通过桌面/开始菜单图标重新打开，约 2 秒内即自动完成全中文汉化！")
+            else:
+                print("[提示] 当前未启动 Antigravity。后台守护进程已就绪，下次打开客户端后约 2 秒内将自动完成全中文汉化！")
     elif "--watch" in sys.argv or "-w" in sys.argv:
         asyncio.run(watch_daemon())
     else:

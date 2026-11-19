@@ -8,7 +8,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-brightgreen?style=flat-square" alt="Platform" />
   <img src="https://img.shields.io/badge/Python-3.8%2B-blue?style=flat-square" alt="Python" />
-  <img src="https://img.shields.io/badge/Version-v1.3.3-blue?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/Version-v1.3.5-blue?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat-square" alt="License" />
   <img src="https://img.shields.io/badge/Safety-100%25%20Zero--Touch-success?style=flat-square" alt="Safety" />
 </p>
@@ -34,8 +34,10 @@
   内置智能作用域过滤器，严格跳过消息列表正文（`role="log"`）、Monaco / CodeMirror 代码编辑器、终端输出、Markdown 渲染块及输入框，**绝不篡改代码正文与聊天 Prompt**。
 - 🔄 **词典实时热重载（Live Hot-Reload）**：
   随手编辑保存 `zh-CN.json`，守护进程 2 秒内自动感知更新并热刷新所有窗口，无需重启应用或守护进程。
-- 🎯 **4080+ 深度精炼词条 + 235+ 动态正则**：
-  基于 Antigravity 2.32.1 官方前端 bundle 深度提取与去重校对，菜单栏、侧栏、设置面板（含安全预设/权限预设/外观/通用/浏览器/界面与对话布局）、SSH 远程主机（SSH Host）与环境配置脚本、移动端与跨设备远程接力（Remote Control）、上下文窗口与模型配额指示器、旁路提问（Side Question / `/btw`）、协调者与蜂群协作看板（Coordinators & Swarm Board `plugin://` 视图）、浏览器下载与站点数据管理、CEL 表达式参考、插件市场与连接器（Marketplace & Connectors）、定时自动化（Automations）、GitHub 权限策略、语音模式、快捷键提示、Web 预览、云端/Cog 工作区、幕僚长画布全覆盖；内置 235+ 条动态正则规则，完美匹配耗时统计（`Thought for 15s` / `Worked for 2m`）、配额与上下文占用比例、后台任务与命令状态、浏览器权限确认、模型变动与系统提示。
+- 🎯 **4140+ 深度精炼词条 + 246 条动态正则**：
+  基于 Antigravity **2.33.0** 官方前端 bundle 深度提取与去重校对，全面覆盖菜单栏、侧栏、设置面板（含快捷键方案 Keybinding Scheme / 安全与权限预设 / 外观 / 通用 / 浏览器与浏览数据 Browsing Data & Cookies by Site / 界面与对话布局）、SSH 远程主机（SSH Host）与环境配置脚本、移动端与跨设备远程接力（Remote Control）、上下文窗口与模型配额指示器、旁路提问（Side Question / `/btw` 与选区插入）、插件包管理与审查（Plugin Bundles）、协调者与蜂群协作看板（Coordinators & Swarm Board `plugin://` 视图）、CEL 表达式参考、插件市场与连接器（Marketplace & Connectors）、定时自动化（Automations）、GitHub 权限策略、语音听写模式、快捷键提示、Web 预览、云端/Cog 工作区、幕僚长画布；内置 246 条动态正则规则，完美匹配耗时统计、配额与上下文占用比例、插件包安装/审查提示、旁路提问动态标题、后台任务与系统提示。
+- 🔧 **原生适配 Antigravity 2.33.0+（零侵入开启 CDP 端口）**：
+  Antigravity 2.33.0 起默认关闭了本地 CDP 调试端口（仅在启动参数包含 `--remote-debugging-port` 时生成 `DevToolsActivePort`）。本版本在安装时**绝不修改任何官方程序文件或 `app.asar`**，仅自动为 Windows 原版快捷方式 / Linux `.desktop` 启动器附加 `--remote-debugging-port=0`（卸载时自动还原），同时支持 `--port` / `ANTIGRAVITY_CDP_PORT` 环境变量与进程级智能诊断提示。
 - 🖥️ **Windows / macOS / Linux 全平台支持**：
   - **Windows**：双击 `install.bat` 极速安装，自动配置开机静默后台守护。
   - **macOS**：一键脚本自动配置 `launchd` 用户守护服务（LaunchAgent）。
@@ -53,7 +55,7 @@
   cd antigravity-chinese-Zero-Touch
   ```
 - **方式 B (ZIP 下载)**：
-  在 GitHub 页面点击 **Code -> Download ZIP**（或在 Releases 页面下载 `antigravity-chinese-Zero-Touch-v1.3.3.zip`），解压到任意目录。
+  在 GitHub 页面点击 **Code -> Download ZIP**（或在 Releases 页面下载 `antigravity-chinese-Zero-Touch-v1.3.5.zip`），解压到任意目录。
 
 ---
 
@@ -129,7 +131,7 @@ bash install.sh
 ```text
 antigravity-chinese/
 ├── antigravity_zh.py    # 核心注入与守护程序（CDP 交互 / DOM 监听 / 热重载）
-├── zh-CN.json           # 4090+ 官方高精提取词典
+├── zh-CN.json           # 4141 条官方高精提取词典（适配 Antigravity 2.33.0）
 ├── install.bat          # Windows 一键安装与开机自启脚本
 ├── apply_chinese.bat    # Windows 手动单次热注入入口
 ├── uninstall.bat        # Windows 干净卸载脚本
@@ -158,11 +160,14 @@ antigravity-chinese/
 ## ❓ 常见问题 (FAQ)
 
 ### Q1: 为什么 Antigravity 启动后没有自动变成中文？
+- **Antigravity 2.33.0+ 特别说明**：2.33.0 起官方默认关闭了 CDP 调试端口（需携带 `--remote-debugging-port=0` 启动参数才会生成 `DevToolsActivePort`）：
+  - **Windows / Linux**：安装脚本已自动为现有快捷方式 / `.desktop` 启动器添加该参数；若安装前已打开客户端，请**完全退出（含系统托盘）后重新打开**即可在 2 秒内自动汉化。
+  - **macOS**：为保持 `.app` 签名零侵入，请通过终端执行 `open -a Antigravity --args --remote-debugging-port=0` 启动。
 - 请确认后台守护进程是否正常运行：
   - **Windows**: 打开任务管理器，查看是否有 `pythonw.exe` 进程在运行。
   - **macOS**: 执行 `launchctl list | grep antigravity` 查看状态。
   - **Linux**: 执行 `systemctl --user status antigravity-zh-watch.service` 查看状态。
-- 您也可以随时执行 `apply_chinese.bat` 或 `./apply_chinese.sh` 进行手动热注入。
+- 您也可以随时执行 `apply_chinese.bat` 或 `./apply_chinese.sh` 进行手动热注入（支持 `--port <端口>` 或 `ANTIGRAVITY_CDP_PORT` 环境变量）。
 
 ### Q2: 对话正文里的英文代码会被误翻译吗？
 不会。本汉化包内置严格的作用域选择器，会主动跳过所有会话消息列表（`role="log"`）、代码块与富文本输入区，绝不会影响代码与 prompt 原文。

@@ -5,7 +5,8 @@ echo   Antigravity 界面汉化卸载清理程序
 echo ===========================================
 echo.
 
-echo [1/2] 正在清理桌面快捷方式、启动项与计划任务...
+echo [1/2] 正在清理快捷方式参数、启动项与计划任务...
+python "%~dp0antigravity_zh.py" --restore-shortcuts >nul 2>&1
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item ([Environment]::GetFolderPath('Desktop') + '\Antigravity (中文秒开版).lnk') -ErrorAction SilentlyContinue" 2>nul
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item ([Environment]::GetFolderPath('Startup') + '\Antigravity-ZH.lnk') -ErrorAction SilentlyContinue" 2>nul
 schtasks /delete /tn "Antigravity-ZH-Daemon" /f >nul 2>&1

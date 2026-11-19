@@ -26,6 +26,10 @@ else
     systemctl --user disable antigravity-zh-watch.service 2>/dev/null || true
     rm -f "$HOME/.config/systemd/user/antigravity-zh-watch.service"
     systemctl --user daemon-reload 2>/dev/null || true
+    USER_DESKTOP_FILE="$HOME/.local/share/applications/antigravity.desktop"
+    if [ -f "$USER_DESKTOP_FILE" ] && grep -q -- '--remote-debugging-port=0' "$USER_DESKTOP_FILE"; then
+        sed -i 's| --remote-debugging-port=0||g' "$USER_DESKTOP_FILE"
+    fi
     echo "✅ systemd 守护服务已移除。"
 fi
 

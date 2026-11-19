@@ -102,7 +102,22 @@ EOF
     systemctl --user daemon-reload
     systemctl --user enable antigravity-zh-watch.service
     systemctl --user restart antigravity-zh-watch.service
-    echo "✅ Linux systemd 守护服务已启动并设置开机自启（使用官方原生图标即可）。"
+    echo "✅ Linux systemd 守护服务已启动并设置开机自启。"
+
+    # 适配 Antigravity 2.33.0+：为用户级 .desktop 启动项附加 --remote-debugging-port=0
+    USER_DESKTOP_DIR="$HOME/.local/share/applications"
+    USER_DESKTOP_FILE="$USER_DESKTOP_DIR/antigravity.desktop"
+    for sys_desktop in "$USER_DESKTOP_FILE" "/usr/share/applications/antigravity.desktop" "/usr/local/share/applications/antigravity.desktop"; do
+        if [ -f "$sys_desktop" ]; then
+            mkdir -p "$USER_DESKTOP_DIR"
+            [ "$sys_desktop" != "$USER_DESKTOP_FILE" ] && cp "$sys_desktop" "$USER_DESKTOP_FILE"
+            if ! grep -q -- '--remote-debugging-port' "$USER_DESKTOP_FILE"; then
+                sed -i 's|^Exec=\(.*\)$|Exec=\1 --remote-debugging-port=0|' "$USER_DESKTOP_FILE"
+                echo "✅ 已为 Linux 应用启动器配置零侵入调试参数（适配 Antigravity 2.33.0+）。"
+            fi
+            break
+        fi
+    done
 fi
 
 # 4. 尝试对当前运行的实例进行即时汉化
@@ -120,7 +135,13 @@ if [ $PORT_FOUND -eq 1 ]; then
     echo "检测到活跃的 Antigravity 窗口，正在执行即时注入..."
     python3 "$CURRENT_DIR/antigravity_zh.py" || true
 else
-    echo "提示: 当前未检测到已打开的 Antigravity，下次启动 Antigravity 时守护进程将自动完成汉化。"
+    if [ "$OS" = "Darwin" ]; then
+        echo "提示: 未检测到 CDP 调试端口。Antigravity 2.33.0+ 默认关闭了远程调试端口，"
+        echo "      请使用以下命令启动（启动后守护进程会在 2 秒内自动汉化）："
+        echo "      open -a Antigravity --args --remote-debugging-port=0"
+    else
+        echo "提示: 未检测到 CDP 调试端口。若 Antigravity 已打开，请完全退出后通过应用图标重新启动（2.33.0+ 需通过已更新的启动器启动）。"
+    fi
 fi
 
 echo ""
