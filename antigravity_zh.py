@@ -174,16 +174,93 @@ def build_js(dict_data):
         'NOSCRIPT', 'SVG', 'CANVAS', 'IFRAME', 'MATH'
     ]);
 
+    const SKIP_CLASS_RE = /(^|\s)(markdown-body|monaco-editor|monaco-diff-editor|view-lines|view-line|mtk\d+|cm-editor|cm-content|cm-line|cm-scroller|shiki|hljs|prism-code|diff-view|diff-viewer|diff-content|diff-code|diff-line|diff-hunk|diff-table|code-block|code-view|code-line|xterm|terminal-wrapper|prose|message-content|chat-message|conversation-message|artifact-content|trajectory-content|monaco-breadcrumb-item|file-tree|file-path|filepath|path-segment)(\s|$)/;
+    const CODE_LINE_RE = /^\s*(import|export|from|const|let|var|function|class|interface|type|return|def|async|await|public|private|protected)\b|from\s+['"]|=>|===|!==|<\/|\/>|\{\s*[A-Za-z_$][\w$]*\s*,/;
+    const PATH_SEGMENT_HINT_RE = /(?:^|\/|\\)[A-Za-z0-9_.-]+\.(?:tsx?|jsx?|mjs|cjs|py|go|rs|java|kt|c|cpp|h|hpp|cs|rb|php|vue|svelte|json|ya?ml|toml|md|css|scss|less|html?|sql|sh|bat|ps1|xml|ini|env)$|[a-z0-9]+[-_][a-z0-9]+/i;
+
     function isSkipped(el) {
         if (!el || el.nodeType !== 1) return false;
         if (SKIP_TAGS.has(el.tagName)) return true;
         // contenteditable 输入区（对话框）整体跳过
         if (el.isContentEditable) return true;
-        // 对话消息区 / 代码视图：Antigravity 用这些标记承载用户内容
-        if (el.dataset && el.dataset.antigravityZhSkip === '1') return true;
+        // 对话消息区 / 代码视图 / Diff 视图：Antigravity 用这些标记承载用户内容
+        if (el.dataset && (
+            el.dataset.antigravityZhSkip === '1' ||
+            el.dataset.line !== undefined ||
+            el.dataset.lineNumber !== undefined ||
+            el.dataset.diff !== undefined ||
+            el.dataset.diffLine !== undefined ||
+            el.dataset.hunk !== undefined ||
+            el.dataset.codeLine !== undefined
+        )) return true;
+        const role = el.getAttribute && el.getAttribute('role');
+        if (role === 'code' || role === 'textbox') return true;
+        // Shiki / 语法高亮内联样式 token
+        if (el.tagName === 'SPAN' && el.style && el.style.cssText && el.style.cssText.includes('--shiki')) return true;
         const cls = el.className;
-        if (typeof cls === 'string' && cls) {
-            if (/(^|\s)(markdown-body|monaco-editor|cm-editor|cm-content|prose|message-content|chat-message|conversation-message|artifact-content|trajectory-content)(\s|$)/.test(cls)) return true;
+        if (typeof cls === 'string' && cls && SKIP_CLASS_RE.test(cls)) return true;
+        return false;
+    }
+
+    // 启发式拦截：无语义 class（如纯 Tailwind）的 Diff/代码行与文件路径面包屑
+    function isCodeTokenContext(parent) {
+        if (!parent || parent.nodeType !== 1) return false;
+        let lineEl = parent;
+        let hasMonoOrPre = false;
+        for (let el = parent, d = 0; el && el.nodeType === 1 && d < 4; el = el.parentNode, d++) {
+            const cls = typeof el.className === 'string' ? el.className : '';
+            if (/(^|\s)(font-mono|whitespace-pre|whitespace-pre-wrap)(\s|$)/.test(cls) ||
+                (el.style && (el.style.whiteSpace === 'pre' || el.style.whiteSpace === 'pre-wrap'))) {
+                hasMonoOrPre = true;
+                lineEl = el;
+                break;
+            }
+        }
+        if (!hasMonoOrPre) return false;
+        const lineText = (lineEl.textContent || '').trim();
+        if (CODE_LINE_RE.test(lineText)) return true;
+        // 语法高亮行通常由多个带颜色样式的 span token 组成
+        if (parent.tagName === 'SPAN' && parent.parentElement) {
+            let coloredSpans = 0;
+            for (const ch of parent.parentElement.children) {
+                if (ch.tagName === 'SPAN' && (ch.style && ch.style.color)) coloredSpans++;
+                if (coloredSpans >= 2) return true;
+            }
+        }
+        return false;
+    }
+
+    function isPathBreadcrumbContext(parent, textCore) {
+        if (!parent || parent.nodeType !== 1 || !textCore) return false;
+        // 括弧状态标签（如 (single edit)）不属于路径段，允许翻译
+        if (textCore.startsWith('(') && textCore.endsWith(')')) return false;
+        for (let el = parent, d = 0; el && el.nodeType === 1 && d < 5; el = el.parentNode, d++) {
+            const al = (el.getAttribute && (el.getAttribute('aria-label') || '')) || '';
+            const title = (el.getAttribute && (el.getAttribute('title') || '')) || '';
+            const cls = typeof el.className === 'string' ? el.className : '';
+            if (/(^|\s)breadcrumbs?(\s|$)/i.test(cls) || /breadcrumb|file\s*path|filepath/i.test(al)) {
+                return true;
+            }
+            // 祖先 title/aria-label 含有真实文件路径，且当前文本是其中的一段路径名
+            const pathAttr = title || al;
+            if (/[\\/]/.test(pathAttr) && !/\s[\\/]|[\\/]\s/.test(pathAttr)) {
+                const segs = pathAttr.split(/[\\/]/);
+                if (segs.includes(textCore)) return true;
+            }
+            // 路径面包屑行特征：多个段由 > / 或 chevron SVG 分隔，且同级含仓库/目录/文件名特征
+            if (d <= 3 && el.children && el.children.length >= 3) {
+                let sepCount = 0;
+                let hasPathLikeSeg = false;
+                for (const ch of el.children) {
+                    const t = (ch.textContent || '').trim();
+                    if (t === '>' || t === '/' || t === '›' || (ch.tagName === 'SVG' || (ch.querySelector && ch.querySelector('svg') && !t))) {
+                        sepCount++;
+                    } else if (t && PATH_SEGMENT_HINT_RE.test(t)) {
+                        hasPathLikeSeg = true;
+                    }
+                }
+                if (sepCount >= 2 && hasPathLikeSeg) return true;
+            }
         }
         return false;
     }
@@ -427,6 +504,7 @@ def build_js(dict_data):
         [/^Send all\s*\(\s*(\d+)\s*\)$/i, m => `全部发送 (${m[1]})`],
         [/^Add\s*\(\s*(\d+)\s*\)$/i, m => `添加 (${m[1]})`],
         [/^See\s+(\d+)\s+more$/i, m => `查看另外 ${m[1]} 项`],
+        [/^\+(\d+)\s+more\s+lines?$/i, m => `展开另外 ${m[1]} 行`],
         [/^\+(\d+)\s+more\s*\(Show all\)$/i, m => `还有 ${m[1]} 项（显示全部）`],
         [/^\+(\d+)\s+more$/i, m => `还有 ${m[1]} 项`],
         // Thinking (Ns)… / Thinking for Ns / Still thinking, N seconds / Working · Ns
@@ -657,10 +735,13 @@ def build_js(dict_data):
         if (!parent || parent.nodeType !== 1) return;
         if (isSkipped(parent)) return;
         let p = parent, depth = 0;
-        while (p && p.nodeType === 1 && depth++ < 12) {
+        while (p && p.nodeType === 1 && depth++ < 40) {
             if (isSkipped(p) || isConversationRoot(p)) return;
             p = p.parentNode;
         }
+        const core = (node.nodeValue || '').trim();
+        if (!core) return;
+        if (isCodeTokenContext(parent) || isPathBreadcrumbContext(parent, core)) return;
         const out = translate(node.nodeValue);
         if (out !== null && out !== node.nodeValue) {
             node.nodeValue = out;
@@ -671,7 +752,7 @@ def build_js(dict_data):
     function handleAttrs(el) {
         if (isSkipped(el)) return;
         let p = el, depth = 0;
-        while (p && p.nodeType === 1 && depth++ < 12) {
+        while (p && p.nodeType === 1 && depth++ < 40) {
             if (isSkipped(p) || isConversationRoot(p)) return;
             p = p.parentNode;
         }
